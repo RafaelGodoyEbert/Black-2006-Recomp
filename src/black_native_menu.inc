@@ -60,6 +60,7 @@ static const char black_menu_definition[] =
 ";           toggle = TEXT | VALUE | FUNCTION              ON / OFF, sends FUNCTION(1 or 0)\r\n"
 ";           slider = TEXT | VALUE | FUNCTION | MIN MAX STEP\r\n"
 ";           keybind / padbind = TEXT | ACTION, padlayout = TEXT   the Controls pages (see [page Controls])\r\n"
+";           photo = TEXT | fov/roll/weapon/speed/range   a photo mode setting (see [page PhotoMode])\r\n"
 ";           VALUE is a number the game publishes to its menus (FEInvertLookFlag ...).\r\n"
 "; Actions:  gamecode NAME [ARG ...]   one of the game's menu functions, as the original page calls it\r\n"
 ";           page NAME                  go to another page\r\n"
@@ -108,6 +109,7 @@ static const char black_menu_definition[] =
 "item = $FE_OBJECTIVESSTATUS | page PauseMenuObjectives\r\n"
 "item = $FE_RESTARTMISSION | set FEConfirmYesGameCode RestartLevel; set FEConfirmNoPage PauseMenu; page ConfirmWarning; gamecode SetupConfirmWarning RestartConfirm\r\n"
 "item = $FE_OPTIONS | page PauseMenuOptionXbox\r\n"
+"item = \"PHOTO MODE\" | open PhotoMode\r\n"
 "item = $FE_QUIT | set FEConfirmYesGameCode QuitLevel; set FEConfirmNoPage PauseMenu; page ConfirmWarning; gamecode SetupConfirmWarning QuitConfirm\r\n"
 "\r\n"
 "[page PauseMenuOptionXbox]\r\n"
@@ -119,7 +121,7 @@ static const char black_menu_definition[] =
 "columns = 431 519\r\n"
 "selector = 349\r\n"
 "arrows = 4\r\n"
-"; two rows more than the original page (CONTROLS, VIDEO SETTINGS): the prompts sit two rows lower\r\n"
+"; three rows more than the original page (CONTROLS, GAMEPLAY SETTINGS, VIDEO SETTINGS): the prompts sit two rows lower\r\n"
 "prompts_at = 218 426 28\r\n"
 "focus = 1\r\n"
 "back = page PauseMenu\r\n"
@@ -129,6 +131,7 @@ static const char black_menu_definition[] =
 "slider = $FE_SFXVOLUME | FESFXVolume | SetSfxValue | 0 100 4 | gap 15\r\n"
 "slider = $FE_MUSICVOLUME | FEMusicVolume | SetMusicValue | 0 100 4\r\n"
 "item = \"CONTROLS\" | open Controls\r\n"
+"item = \"GAMEPLAY SETTINGS\" | open GameplaySettings\r\n"
 "item = \"VIDEO SETTINGS\" | video\r\n"
 "\r\n"
 "[page OptionsMenuXbox]\r\n"
@@ -145,6 +148,7 @@ static const char black_menu_definition[] =
 "item = $FE_SOUNDSETUP | page SoundSetupXbox\r\n"
 "item = $FE_PICTURESETUP | page PictureSetupXbox\r\n"
 "item = $FE_PLAYERPROFILE | page ProfileOptions\r\n"
+"item = \"GAMEPLAY SETTINGS\" | open GameplaySettings\r\n"
 "item = \"VIDEO SETTINGS\" | video\r\n"
 "\r\n"
 "; Controls: keybind = TEXT | ACTION is an action's two keyboard/mouse keys (ACTION as RECOMP_BLACK_BIND_<ACTION>),\r\n"
@@ -321,9 +325,55 @@ static const char black_menu_definition[] =
 "padbind = \"OBJECTIVES\" | BACK\r\n"
 "item = \"BACK\" | close\r\n"
 "\r\n"
+"; Photo mode: photomode = on draws the page as a panel (panel = X Y W H) over the paused game, and photo mode is on\r\n"
+"; while it is shown. photo = TEXT | fov/roll/weapon/speed/range is a photo setting; photo_shot takes a photo, photo_reset\r\n"
+"; puts the camera back, photo_hide puts the panel away (H / X bring it back). &PHOTO_HELP shows the controls or the\r\n"
+"; last photo. Pictures go to Pictures\\BLACK (RECOMP_PHOTO_DIR moves them).\r\n"
+"[page PhotoMode]\r\n"
+"photomode = on\r\n"
+"panel = 18 24 258 400\r\n"
+"title = \"PHOTO MODE\"\r\n"
+"title_at = 38 58\r\n"
+"list = 40 104 21\r\n"
+"values = 254\r\n"
+"item_size = 13\r\n"
+"selector = 228\r\n"
+"arrows = 4\r\n"
+"start = back\r\n"
+"text = 40 294 &PHOTO_HELP | wrap 214 | size 11\r\n"
+"prompts_at = 66 366 18\r\n"
+"back = close\r\n"
+"photo = \"FIELD OF VIEW\" | fov\r\n"
+"photo = \"ROLL\" | roll\r\n"
+"photo = \"WEAPON\" | weapon\r\n"
+"photo = \"CAMERA SPEED\" | speed\r\n"
+"photo = \"CAMERA RANGE\" | range\r\n"
+"item = \"TAKE PHOTO\" | photo_shot\r\n"
+"item = \"RESET CAMERA\" | photo_reset\r\n"
+"item = \"HIDE PANEL\" | photo_hide\r\n"
+"item = \"EXIT PHOTO MODE\" | close\r\n"
+"\r\n"
+"; Gameplay additions are opt-in. Original keeps the native aiming dot.\r\n"
+"[page GameplaySettings]\r\n"
+"column = 00000000\r\n"
+"title = \"GAMEPLAY SETTINGS\"\r\n"
+"logo = 185.5 58\r\n"
+"title_at = 199 86\r\n"
+"rails = 47 170\r\n"
+"list = 218 147 27\r\n"
+"values = 607\r\n"
+"item_size = 13.5\r\n"
+"selector = 401\r\n"
+"arrows = 4\r\n"
+"text = 218 310 &VIDEO_HELP | wrap 389 | size 12\r\n"
+"prompts_at = 218 399 28\r\n"
+"back = close\r\n"
+"setting = \"CROSSHAIR\" | crosshair\r\n"
+"setting = \"HIT MARKERS\" | hitmarkers\r\n"
+"item = \"BACK\" | close\r\n"
 "\r\n"
 "; PC video pages use the same fonts, rails, focus and input as the game's menus.\r\n"
-"; setting = TEXT | mode/window/internal/aa/af/dof/sharpen/ao_method/ao_quality/aspect/fov/scale/filter/vsync/fps/blur\r\n"
+"; setting = TEXT | mode/window/internal/aa/af/dof/sharpen/ao_method/ao_quality/reflections/ray_tracing/aspect/fov/scale/filter/vsync/fps/blur/crosshair/hitmarkers\r\n"
 "; &VIDEO_HELP is the focused setting's explanation. reset_video preserves locked values.\r\n"
 "[page VideoSettings]\r\n"
 "column = 00000000\r\n"
@@ -346,7 +396,7 @@ static const char black_menu_definition[] =
 "logo = 151.5 58\r\n"
 "title_at = 165 86\r\n"
 "rails = 47 130\r\n"
-"list = 168 142 23\r\n"
+"list = 168 142 20\r\n"
 "values = 607\r\n"
 "item_size = 13.5\r\n"
 "selector = 451\r\n"
@@ -370,7 +420,7 @@ static const char black_menu_definition[] =
 "logo = 151.5 58\r\n"
 "title_at = 165 86\r\n"
 "rails = 47 130\r\n"
-"list = 168 142 23\r\n"
+"list = 168 142 20\r\n"
 "values = 607\r\n"
 "item_size = 13.5\r\n"
 "selector = 451\r\n"
@@ -384,6 +434,8 @@ static const char black_menu_definition[] =
 "setting = \"SHARPENING\" | sharpen\r\n"
 "setting = \"AMBIENT OCCLUSION\" | ao_method\r\n"
 "setting = \"AO QUALITY\" | ao_quality\r\n"
+"setting = \"REFLECTIONS\" | reflections\r\n"
+"setting = \"RAY TRACING (EXPERIMENTAL)\" | ray_tracing\r\n"
 "setting = \"FIELD OF VIEW\" | fov\r\n"
 "setting = \"MOTION BLUR\" | blur\r\n"
 "item = \"BACK\" | close\r\n"
@@ -459,6 +511,24 @@ static const char black_menu_definition[] =
 "item = $FE_OPTIONS | page OptionsMenuXbox\r\n"
 "item = \"EXIT GAME\" | open ExitGame\r\n"
 "\r\n"
+"; Before the game's own Difficulty page (from START MISSION and from the mission select): one player or two,\r\n"
+"; player two in the bottom half (split-screen, pc_split.h). set SplitPlayers 1 or 2 makes the choice, and then\r\n"
+"; the game's Difficulty page shows; BACK is that page's own back.\r\n"
+"[page Players]\r\n"
+"column = 00000000\r\n"
+"title = \"PLAYERS\"\r\n"
+"logo = 185.5 58\r\n"
+"title_at = 199 86\r\n"
+"rails = 47 170\r\n"
+"list = 218 147 27\r\n"
+"selector = 349\r\n"
+"text = 218 225 \"TWO PLAYERS: PLAYER TWO IN THE BOTTOM HALF, ON THE SECOND CONTROLLER OR THE ARROWS AND THE NUMPAD.\" | wrap 380 | size 12\r\n"
+"prompts_at = 218 399 28\r\n"
+"focus = 1\r\n"
+"back = gamecode DifficultyBack\r\n"
+"item = \"ONE PLAYER\" | set SplitPlayers 1\r\n"
+"item = \"TWO PLAYERS (EXPERIMENTAL)\" | set SplitPlayers 2\r\n"
+"\r\n"
 "; The main menu once a mission is done.\r\n"
 "[page blacktitlemenu]\r\n"
 "column = 00000000\r\n"
@@ -489,9 +559,14 @@ static const char black_menu_definition[] =
 "item = $FE_NO | close\r\n";
 
 /* The built-in definitions of earlier builds (FNV-1a 64 of the whole file): a local\menus.ini that is still exactly
- * one of them was never edited and is brought up to date. 1: the in-game pages only (2026-10-05). */
+ * one of them was never edited and is brought up to date. 1: the in-game pages only (2026-10-05); 4: before the
+ * Controls, Photo mode and Reflections pages; 5-7: the Controls, Photo mode and Reflections builds alone; 8-9: the
+ * two builds before the Ray tracing row; 10: the Ray tracing build, before the crosshair rows; 12: the Players page
+ * before its two-player choice was marked experimental. */
 static const uint64_t black_menu_replaced[] = { 0xD8419D900AB2FEA6ull, 0xBBE0D874943DB641ull, 0x9F7652C358180DC6ull,
-                                                0xFF74A7E07CF4C7F0ull };
+                                                0xFF74A7E07CF4C7F0ull, 0x33977C1E8AC020F3ull, 0xB86AB9AC7D0F4406ull,
+                                                0xDC483F969B68C28Aull, 0x9EE07629CB313D32ull, 0xC6D3B76BDD8FC724ull,
+                                                0xCAB7BCC76B5F689Aull, 0x53E79C5FCD83D531ull, 0x8895E21EE19C8166ull, 0x5984EE9CC11281D1ull, 0x80C09B1E7F97E61Full };
 
 /* ---- guest helpers --------------------------------------------------------------------------------------- */
 
@@ -853,6 +928,22 @@ static void bnm_load_core_images(void)
 /* ---- the update hook --------------------------------------------------------------------------------------- */
 
 static int bnm_state;                 /* 0 not started, 1 ready, -1 off */
+static int bnm_players_chosen;        /* one player or two was chosen on this visit to the Difficulty page */
+
+/* The Players page's choice (set SplitPlayers 1 or 2): the split-screen setting, then the Difficulty page. */
+static void bnm_set_var_hook(void *ctx, const char *name, const char *value)
+{
+    if (!_stricmp(name, "SplitPlayers")) {
+        PcVideoSettings v;
+        pc_video_get(&v);
+        v.split_screen = atoi(value) == 2;
+        pc_video_set(&v);
+        bnm_players_chosen = 1;
+        fprintf(stderr, "[MENU] %s\n", v.split_screen ? "two players: split-screen" : "one player");
+        return;
+    }
+    bnm_set_var(ctx, name, value);
+}
 static char bnm_hidden_page[48];
 static int bnm_hidden_frames;
 
@@ -947,7 +1038,7 @@ static void black_native_menu_tick(uint32_t ui)
     ready = GUEST32(ui + 0x381Cu) == 2u && GUEST32(ui + 0x388Cu) == 0u && GUEST32(ui + 0x3884u) == 0u;
     ctx.ui = ui;
     host.ctx = &ctx; host.gamecode = bnm_gamecode; host.page = bnm_page; host.value = bnm_value; host.text = bnm_text;
-    host.sound = bnm_sound; host.video = bnm_video; host.set_var = bnm_set_var; host.get_var = bnm_get_var;
+    host.sound = bnm_sound; host.video = bnm_video; host.set_var = bnm_set_var_hook; host.get_var = bnm_get_var;
     host.quit = bnm_quit;
     if (bnm_sound_pending[0]) {
         char prop[64];
@@ -955,7 +1046,8 @@ static void black_native_menu_tick(uint32_t ui)
         bnm_sound_pending[0] = 0;
         bnm_trace_property(ui, "sound", prop);
     }
-    active = pc_menu_tick(page, ready, &host);
+    if (_stricmp(page, "Difficulty")) bnm_players_chosen = 0;
+    active = pc_menu_tick(!_stricmp(page, "Difficulty") && !bnm_players_chosen ? "Players" : page, ready, &host);
     if (active) {
         /* Hidden once the page is loaded, and again now and then: a page the game reloads comes back visible. */
         if (_stricmp(bnm_hidden_page, page) || ++bnm_hidden_frames >= 30) {

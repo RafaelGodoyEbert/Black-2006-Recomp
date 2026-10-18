@@ -104,6 +104,7 @@ extern void pc_input_set_control_resolver(int (*resolver)(int slot));
 extern int black_pc_input_gameplay_blocked_query(void);
 extern void black_controls_install(void);
 extern void pc_input_set_gameplay_blocked_query(int (*query)(void));
+extern void black_photo_install(void);
 
 /* ── VEH crash handler ─────────────────────────────────────── */
 
@@ -444,7 +445,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     setvbuf(stderr, NULL, _IONBF, 0);
     RECOMP_ICALL_FEEDBACK_INIT();
 
-    printf("=== BLACK - Static Recompilation ===\n");
+    printf("=== BLACK - Static Recompilation %s ===\n", BLACK_VERSION);
     printf("Loading XBE...\n");
 
     /* Install VEH handler (first handler in chain) */
@@ -576,6 +577,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     pc_input_set_control_resolver(black_pc_input_resolver);
     pc_input_set_gameplay_blocked_query(black_pc_input_gameplay_blocked_query);
     black_controls_install();
+    black_photo_install();
 
     /* Step 7: Call the recompiled entry point */
     printf("\nStarting game...\n");

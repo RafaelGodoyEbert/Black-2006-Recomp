@@ -4,7 +4,7 @@ if(NOT WIN32)
     message(FATAL_ERROR "The Controls page regressions require Windows.")
 endif()
 set(XBOXRECOMP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/xboxrecomp"
-    CACHE PATH "Pinned XboxRecomp checkout with patches/xboxrecomp.patch applied")
+    CACHE PATH "XboxRecomp submodule (third_party/xboxrecomp)")
 set(runtime_video "${XBOXRECOMP_DIR}/src/video")
 set(runtime_input "${XBOXRECOMP_DIR}/src/input")
 set(menu_source "${CMAKE_CURRENT_SOURCE_DIR}/../../src/black_native_menu.inc")
@@ -35,7 +35,7 @@ add_executable(controls-test test_controls.c
     "${controls_wrapper}"
     "${runtime_video}/pc_menu.c" "${runtime_video}/pc_menu_assets.c" "${runtime_video}/pc_movie_skip.c"
     "${runtime_video}/pc_video.c" "${runtime_video}/pc_video_menu.c"
-    "${runtime_input}/pc_input.c" "${BLACK_PC_CONTROLS_SOURCE}")
+    "${runtime_input}/pc_input.c" "${BLACK_PC_CONTROLS_SOURCE}" "${runtime_video}/pc_photo.c")
 add_dependencies(controls-test controls-definition controls-wrapper)
 target_include_directories(controls-test PRIVATE "${runtime_video}" "${runtime_input}" "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(controls-test PRIVATE _CRT_SECURE_NO_WARNINGS WIN32_LEAN_AND_MEAN NOMINMAX)

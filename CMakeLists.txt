@@ -26,6 +26,9 @@ add_executable(${PROJECT_NAME} WIN32
     src/recomp_manual.c
     ${RECOMP_GEN_SOURCES}
 )
+# The release version, shared with the launcher
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" BLACK_VERSION LIMIT_COUNT 1)
+target_compile_definitions(${PROJECT_NAME} PRIVATE BLACK_VERSION="${BLACK_VERSION}")
 option(RECOMP_ICALL_FEEDBACK "Record indirect call targets for the next generation pass" OFF)
 option(RECOMP_TRACE_UNRESOLVED_STUBS "Log unresolved guest call targets and state" OFF)
 if(RECOMP_ICALL_FEEDBACK)
@@ -54,4 +57,10 @@ if(MSVC)
         target_compile_options(${PROJECT_NAME} PRIVATE /MP)
     endif()
     target_link_options(${PROJECT_NAME} PRIVATE /LARGEADDRESSAWARE)
+endif()
+# The DLSS runtime next to the game, when the SDK is present (third_party/dlss)
+set(BLACK_DLSS_DLL "${CMAKE_CURRENT_SOURCE_DIR}/third_party/dlss/lib/Windows_x86_64/rel/nvngx_dlss.dll")
+if(WIN32 AND EXISTS "${BLACK_DLSS_DLL}")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${BLACK_DLSS_DLL}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
 endif()

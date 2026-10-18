@@ -32,6 +32,7 @@
 #include "pc_video_menu.h"
 #include "pc_movie_skip.h"
 #include "pc_menu.h"
+#include "fb_present.h"
 #include "black_menu_prompt_language.h"
 
 /* ── ICALL trace ring buffer ───────────────────────────────── */
@@ -176,6 +177,7 @@ static int black_pc_ram_span(uint32_t address, uint32_t bytes);
 static void black_movie_skip_font(void);
 
 #define GUEST32(va) (*(uint32_t *)((uintptr_t)g_xbox_mem_offset + (va)))
+#define GUEST8(va) (*(uint8_t *)((uintptr_t)g_xbox_mem_offset + (va)))
 
 /* DirectSound's idle-voice completion edits the same intrusive lists as guest
  * threads at DISPATCH_LEVEL. On Xbox its busy-counter test runs on the same
@@ -530,6 +532,21 @@ void black_level_override(uint8_t *level, uint8_t *stage)
 unsigned black_vblank_hz(void)
 {
     return black_step_halved ? black_vblank_hz_v : 60;
+}
+
+/* ---- The gamma ramp without the fault --------------------------------------------------------------------
+ * The D3D vblank handler uploads a pending gamma ramp here (red at edx, green at +0x100, blue at +0x200) as 768
+ * byte writes to the DAC palette, each of which traps. The game rewrites the ramp for every step of a screen fade,
+ * so it goes to the presenter in one call instead. The registers are left as the original loop leaves them. */
+void sub_00274476(void)
+{
+    const uint32_t ramp = g_edx;
+    const uint8_t *r = (const uint8_t *)((uintptr_t)g_xbox_mem_offset + ramp);
+    xbox_FramebufferGammaRamp(r, r + 0x100, r + 0x200);
+    g_ecx = GUEST32(g_eax);
+    g_eax = ramp + 0x200;
+    g_edx = 0x100;
+    g_esp += 4;     /* ret */
 }
 
 /* ---- APU registers without the fault ---------------------------------------------------------------------
@@ -908,6 +925,118 @@ void black_viewmodel_muzzle_constants(uint32_t upload, uint32_t caller)
 static double black_fov_vertical, black_fov_window_per_aspect;
 static volatile LONG black_fov_announced;
 
+/* BEGIN BLACK_PHOTO_MODE
+ * Photo mode (xboxrecomp/src/video/pc_photo.c), opened from the pause menu's PHOTO MODE item. The paused game keeps
+ * producing its world camera, renderer[2D67F4]+D450, about sixty times a second through D2F40, which copies the
+ * camera entity's matrix into the RwCamera's frame ([camera+58]+4: modelling matrix at +10, LTM at +50, rows
+ * right / up / at / pos of 16 bytes) and then sets the view window from +70. While photo mode is on, the view window
+ * is scaled for its field of view before the original runs, and both matrices are replaced with the photo camera's
+ * after it, so the picture and the frustum the renderer culls with follow it. The original rebuilds the matrices
+ * from the entity every update, so leaving photo mode needs no restoring; the first-person weapon, drawn from the
+ * gameplay camera, leaves the picture as soon as the camera moves. Only the player's own view of a paused mission
+ * opens it: the camera entity's FOV-enable byte +16A4 is clear while a scripted camera runs (BLACK_PC_FOV). */
+#include "pc_photo.h"
+extern void kgpu_request_capture(const char *path);
+extern int kgpu_capture_result(void);
+extern int black_pc_input_gameplay_blocked_query(void);
+
+static float black_photo_f32(uint32_t va) { float v; memcpy(&v, (const void *)((uintptr_t)g_xbox_mem_offset + va), 4); return v; }
+static void black_photo_put(uint32_t va, float v) { memcpy((void *)((uintptr_t)g_xbox_mem_offset + va), &v, 4); }
+
+/* The world camera bound to the player's camera entity, outside scripted camera mode; 0 otherwise. */
+static uint32_t black_photo_world_camera(void)
+{
+    uint32_t renderer, owner, camera;
+    if (!black_pc_ram_span(0x002D67F4u, 4u) || !black_pc_ram_span(0x002D12B8u, 4u)) return 0;
+    renderer = GUEST32(0x002D67F4u);
+    owner = GUEST32(0x002D12B8u);
+    if (!black_pc_ram_span(renderer, 0xD4F0u) || !black_pc_ram_span(owner, 0x16A5u)) return 0;
+    camera = renderer + 0xD450u;
+    if (GUEST32(camera + 0x68u) != owner + 0x740u ||
+        !*(const unsigned char *)((uintptr_t)g_xbox_mem_offset + owner + 0x16A4u)) return 0;
+    return camera;
+}
+
+static int black_photo_can_start(void)
+{
+    return black_pc_input_gameplay_blocked_query() && black_photo_world_camera() != 0;
+}
+
+static const PcPhotoHost black_photo_host = { black_photo_can_start, kgpu_request_capture, kgpu_capture_result };
+
+void black_photo_install(void) { pc_photo_set_host(&black_photo_host); }
+
+/* After D2F40: the photo camera replaces both of the RwCamera frame's matrices. */
+static void black_photo_camera(uint32_t camera)
+{
+    const unsigned caller_csr = _mm_getcsr();
+    uint32_t rwcam, frame, row;
+    float m[4][3];
+    int k;
+    if (!pc_photo_active() || camera != black_photo_world_camera()) return;
+    rwcam = GUEST32(camera + 0x58u);
+    if (!black_pc_ram_span(rwcam, 8u)) return;
+    frame = GUEST32(rwcam + 4u);
+    if (!black_pc_ram_span(frame, 0x90u)) return;
+    _mm_setcsr(0x1F80u);
+    for (row = 0; row < 4; row++)
+        for (k = 0; k < 3; k++) m[row][k] = black_photo_f32(frame + 0x10u + row * 0x10u + (uint32_t)k * 4u);
+    if (pc_photo_camera(m, black_photo_f32(camera + 0x4Cu)))
+        for (row = 0; row < 4; row++)
+            for (k = 0; k < 3; k++) {
+                black_photo_put(frame + 0x10u + row * 0x10u + (uint32_t)k * 4u, m[row][k]);   /* modelling */
+                black_photo_put(frame + 0x50u + row * 0x10u + (uint32_t)k * 4u, m[row][k]);   /* LTM */
+            }
+    _mm_setcsr(caller_csr);
+}
+/* END BLACK_PHOTO_MODE */
+
+/* BEGIN BLACK_SPLITSCREEN
+ * Split-screen, first step (RECOMP_SPLITSCREEN=1, docs/plans/split-screen-coop.md): the world is drawn twice a
+ * frame. 1EE820(player) draws it through the world camera renderer[2D67F4]+D450 (camera begin 1762B0 with index 1,
+ * end 1732A0), the game's own effects included; its callers clear first (268880) and draw the HUD through the 2D
+ * camera after. Each world is a whole frame of its own: the GPU draws it on surfaces of that view's, at its share of
+ * the screen, runs the PC's effects on it with that view's history and copies it into its half (kelvin_mark_view,
+ * at the D3D device's push pointer [27BFF8]+0, so the switch lands at that command). The camera's aspect (+74) is
+ * doubled for D2F40, so a view keeps the horizontal field of view and shows half the vertical. Player one's world
+ * comes first; D2F40 then runs again with player two's free camera (pc_split.c) in place of the frame matrices, as
+ * photo mode does, at the native lens so player one's aim zoom stays theirs, and a last D2F40 puts player one's
+ * camera back. Player one's weapon is scaled into its half; player two sees no weapon. Each player gets the HUD in
+ * their half, and the camera-motion blur keeps a history per player. A scripted camera (BLACK_PC_FOV) is drawn whole. */
+#include "pc_split.h"
+extern void sub_001EE820_gen(void);
+extern int kelvin_mark_view(uint32_t va, int mode, int slot, int x0, int y0, int x1, int y1);
+extern void sub_00268880(void);
+extern uint32_t xbox_PhysicalAddressOf(uint32_t va);
+extern RECOMP_TLS uint32_t g_ebp, g_seh_ebp;
+enum { BLACK_VIEW_FRAME = 1, BLACK_VIEW_FIT = 2 };    /* KG_VIEW_* (kelvin_gpu.h) */
+
+static int black_split_pass;                          /* 2 while player two's camera and world are produced */
+
+/* After D2F40 in player two's pass: player two's camera replaces both of the RwCamera frame's matrices. */
+static void black_split_camera(uint32_t camera)
+{
+    const unsigned caller_csr = _mm_getcsr();
+    uint32_t rwcam, frame, row;
+    float p1[4][3], m[4][3];
+    int k;
+    rwcam = GUEST32(camera + 0x58u);
+    if (!black_pc_ram_span(rwcam, 8u)) return;
+    frame = GUEST32(rwcam + 4u);
+    if (!black_pc_ram_span(frame, 0x90u)) return;
+    _mm_setcsr(0x1F80u);
+    for (row = 0; row < 4; row++)
+        for (k = 0; k < 3; k++) p1[row][k] = black_photo_f32(frame + 0x10u + row * 0x10u + (uint32_t)k * 4u);
+    pc_split_camera(m, p1);
+    for (row = 0; row < 4; row++)
+        for (k = 0; k < 3; k++) {
+            black_photo_put(frame + 0x10u + row * 0x10u + (uint32_t)k * 4u, m[row][k]);
+            black_photo_put(frame + 0x50u + row * 0x10u + (uint32_t)k * 4u, m[row][k]);
+        }
+    _mm_setcsr(caller_csr);
+}
+/* END BLACK_SPLITSCREEN */
+
 /* The gameplay FOV is a video setting too (pc_video.c): the Video Settings page changes it while the game runs. */
 static void black_fov_refresh(void)
 {
@@ -935,7 +1064,7 @@ void sub_000D2F40(void)
     const uint32_t camera = g_edi;
     const unsigned caller_csr = _mm_getcsr();
     fenv_t caller_environment;
-    uint32_t saved_window = 0, new_window = 0;
+    uint32_t saved_window = 0, new_window = 0, split_aspect = 0, split_aspect_doubled = 0;
     int adjusted = 0;
     /* Host parsing/math/logging uses a masked nearest environment, then puts
      * every caller control/status bit back before entering the guest producer.
@@ -982,14 +1111,1711 @@ void sub_000D2F40(void)
         if (black_pc_ram_span(renderer, 0xD4F0u) && camera == renderer + 0xD450u)
             black_viewmodel_scale(adjusted ? saved_window : 0u, adjusted ? new_window : 0u);
     }
+    if (pc_photo_active() && camera == black_photo_world_camera()) {
+        /* photo mode's field of view scales the window the original builds the lens from */
+        const uint32_t base_window = adjusted ? new_window : GUEST32(camera + 0x70u);
+        float photo_window;
+        if (!adjusted) saved_window = base_window;
+        memcpy(&photo_window, &base_window, sizeof(photo_window));
+        photo_window *= pc_photo_zoom();
+        memcpy(&new_window, &photo_window, sizeof(new_window));
+        adjusted = saved_window > 0u && saved_window < 0x7F800000u && new_window > 0u && new_window < 0x7F800000u;
+    }
+    /* photo mode leaves the first-person weapon out: its draws (BLACK_VIEWMODEL_OWNER) scale to nothing */
+    if (pc_photo_weapon_hidden() && camera == black_photo_world_camera()) black_vm_scale_bits = 0u;
+    if (pc_split_enabled() && camera == black_photo_world_camera()) {
+        float scale;
+        memcpy(&scale, &black_vm_scale_bits, 4);
+        scale = black_split_pass == 2 ? 0.0f : scale * 0.5f;
+        memcpy(&black_vm_scale_bits, &scale, 4);
+        split_aspect = GUEST32(camera + 0x74u);
+        if (split_aspect > 0u && split_aspect < 0x7F000000u) {
+            float aspect;
+            memcpy(&aspect, &split_aspect, 4);
+            aspect *= 2.0f;
+            memcpy(&split_aspect_doubled, &aspect, 4);
+        } else {
+            split_aspect = 0u;
+        }
+    }
     fesetenv(&caller_environment);
     _mm_setcsr(caller_csr);
     if (adjusted) GUEST32(camera + 0x70u) = new_window;
+    if (split_aspect) GUEST32(camera + 0x74u) = split_aspect_doubled;
     sub_000D2F40_gen();
+    if (split_aspect) GUEST32(camera + 0x74u) = split_aspect;
     if (adjusted) GUEST32(camera + 0x70u) = saved_window;
     black_ao_camera_publish(camera);
+    black_photo_camera(camera);
+    if (black_split_pass == 2 && camera == black_photo_world_camera()) black_split_camera(camera);
 }
 /* END BLACK_PC_FOV */
+
+/* BEGIN BLACK_SPLITSCREEN (player two)
+ * Player two is a second player of the game's own kind in the one mission core ([2D45D4]): its own player actor (the
+ * 0x900 bytes at core+30, controller included) and camera owner ([2D12B8], 0x16C0 bytes, made with the game's 14380).
+ * The core is full of lists linked through it, so player two cannot have a core of its own; instead, whenever player
+ * two's code runs -- its controller and actor update after player one's (1F1080), its camera, view and HUD -- player
+ * two's actor is swapped into the core and its camera owner into [2D12B8], and swapped back afterwards. Every "the
+ * player" the game reads is then player two, and pointers within the actor stay valid because it always runs at the
+ * same address. Out of the core, player two's actor is kept in guest memory (the shadow), which is what its physics
+ * proxy belongs to: the world's step brings it to its body and reports its contacts there, as it does a character's.
+ * Once player one's mission is running (core+5AE0 = 1C), player two starts as a copy of player one's actor and camera
+ * owner with a weapon array of its own, the game's own player setup loads its character again (1E0E40: loadout,
+ * weapons), and it takes a physics proxy of its own (DF400, as 1EBC30 does for player one) placed beside player one's.
+ * Its controller reads the second pad (input component 1 of [2D45E8]). The world camera's binding (+68) and the audio
+ * listener ([[2D0D60]+D380]) stay player one's. */
+#include "pc_crosshair.h"
+#define BLACK_ACTOR_AT 0x30u
+#define BLACK_ACTOR_BYTES 0x900u
+#define BLACK_OWNER_BYTES 0x16C0u
+#define BLACK_SOURCE_BYTES 0x40u
+#define BLACK_WEAPON_SLOTS 16u
+#define BLACK_P2_MODEL_BYTES 0x200u
+#define BLACK_CORE_RUNNING 0x1Cu
+extern void sub_00014380(void);
+extern void sub_000DB5B0(void);
+extern void sub_000DBBE0(void);
+extern void sub_000DF400(void);
+extern void sub_000DF400_gen(void);
+extern void sub_001EBB40_gen(void);
+extern void sub_001E0E40(void);
+extern void sub_001EAF40(void);
+extern void sub_0017F270(void);
+extern void sub_001F1080_gen(void);
+
+typedef struct BlackRegs { uint32_t eax, ecx, edx, ebx, esi, edi; } BlackRegs;
+
+static uint32_t black_p2_shadow;                      /* player two's actor while player one's is in the core */
+static uint32_t black_p2_owner, black_p2_source, black_p2_weapons, black_p2_proxy, black_p2_core, black_p2_parts;
+#define BLACK_P2_ACTOR ((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_shadow)
+static int black_p2_state;                            /* 0 no mission, 1 being set up, 2 playing */
+static int black_p2_in;                               /* player two is swapped in */
+static int black_p2_source_ready, black_p2_fresh, black_p2_ready;
+static uint32_t black_p2_ready_ask;
+static uint32_t black_p2_use;
+static int black_msg_in;
+static void black_msg_swap(void);
+static void black_hud_packs(int count);
+static unsigned black_p2_tries;
+
+/* Calls a generated guest function as guest code would: `n` stack arguments below the caller's stack, the registers
+ * given, the return address `ret`; every register and the floating-point control are put back afterwards. Returns eax. */
+static uint32_t black_guest_call(void (*fn)(void), const BlackRegs *r, const uint32_t *args, unsigned n, uint32_t ret)
+{
+    const uint32_t s_eax = g_eax, s_ecx = g_ecx, s_edx = g_edx, s_ebx = g_ebx, s_esi = g_esi, s_edi = g_edi;
+    const uint32_t s_esp = g_esp, s_ebp = g_ebp, s_seh = g_seh_ebp;
+    const unsigned csr = _mm_getcsr();
+    uint32_t sp = (s_esp - 0x200u) & ~15u, result;
+    unsigned i;
+    if (!fn || s_esp < 0x20000u || !black_pc_ram_span(sp - 4u * (n + 1u), 4u * (n + 1u) + 0x200u)) return 0;
+    for (i = n; i-- > 0;) { sp -= 4u; GUEST32(sp) = args[i]; }
+    sp -= 4u; GUEST32(sp) = ret;
+    g_esp = sp; g_eax = r->eax; g_ecx = r->ecx; g_edx = r->edx; g_ebx = r->ebx; g_esi = r->esi; g_edi = r->edi;
+    fn();
+    result = g_eax;
+    g_eax = s_eax; g_ecx = s_ecx; g_edx = s_edx; g_ebx = s_ebx; g_esi = s_esi; g_edi = s_edi;
+    g_esp = s_esp; g_ebp = s_ebp; g_seh_ebp = s_seh;
+    _mm_setcsr(csr);
+    return result;
+}
+
+/* A virtual method of `self` (thiscall: ecx = self). */
+static uint32_t black_guest_method(uint32_t self, unsigned slot, uint32_t esi, const uint32_t *args, unsigned n, uint32_t ret)
+{
+    BlackRegs r;
+    uint32_t vtbl;
+    if (!black_pc_ram_span(self, 4u) || !black_pc_ram_span(vtbl = GUEST32(self), (slot + 1u) * 4u)) return 0;
+    memset(&r, 0, sizeof(r));
+    r.ecx = self; r.esi = esi;
+    return black_guest_call(recomp_lookup(GUEST32(vtbl + slot * 4u)), &r, args, n, ret);
+}
+
+static int black_p2_playing(void) { return black_p2_state == 2; }
+
+/* The actor's links in the world's lists (the collision lists at core+4960 among them) belong to the one node at
+ * core+30, whichever player is in it: a field whose neighbour points back at it (next or previous) when player two
+ * comes in is not exchanged. */
+static uint8_t black_p2_link[BLACK_ACTOR_BYTES / 4];
+
+static void black_p2_find_links(void)
+{
+    const uint32_t base = black_p2_core + BLACK_ACTOR_AT;
+    uint32_t off, v, a, b;
+    memset(black_p2_link, 0, sizeof(black_p2_link));
+    /* the world grid's node (+20..+57, made by 1CE1F0: its cell +30 and links +34/+38) is the core's */
+    memset(black_p2_link + 0x20u / 4u, 1, 0x38u / 4u);
+    for (off = 0; off < BLACK_ACTOR_BYTES; off += 4u) {
+        v = GUEST32(base + off);
+        if (v - base < BLACK_ACTOR_BYTES || (v & 3u) || !black_pc_ram_span(v, 8u)) continue;
+        a = GUEST32(v); b = GUEST32(v + 4u);
+        if (a == base + off || b == base + off || (off >= 4u && (a == base + off - 4u || b == base + off - 4u)))
+            black_p2_link[off / 4u] = 1;
+    }
+}
+
+/* The first-person weapon is the viewmodel set's ([2D12C8], 0x970 bytes): its two animation sets (+398, +404), its
+ * two slots (+470, 0x240 bytes each, one per inventory index, the actor's +328), each slot's pose matrices (+30..+4C,
+ * 0xA0 bytes each) and animation controller (+54, 0x9D0 bytes, 17EAE0), and the set's animation pool (+8F0): blocks
+ * (addresses at +8FC, 0x3F9A bytes each, +90C of them) each filled up to its top (+900), which the controllers'
+ * state is taken from. The loaded animations point back into that state, so it cannot move: player two keeps a copy
+ * of its contents, taken when it joins, and the two are exchanged in place with the actor. The pool is every animated
+ * model's (the level's characters too): only the first-person slots' blocks and tops are each player's, each block
+ * exchanged up to the higher of the two tops. The animation library's own working state
+ * (2C3260..2CE710: its jobs, 0x670 bytes each, which a controller keeps one of at +984 from one pose to the next) is
+ * each player's too. Its cache of decoded keys ([2CE6B0], built by 950F0 from the pool: entries at +C, data at +20,
+ * +24 bytes) is keyed by where the animations are, which player two's loads move: it starts empty again on every
+ * exchange, as it is when built. */
+#define BLACK_ANIM_CACHE 0x002CE6B0u
+#define BLACK_ANIM_AT 0x002C3260u
+#define BLACK_ANIM_BYTES (0x002CE710u - 0x002C3260u)
+#define BLACK_VM_AT 0x398u
+#define BLACK_VM_BYTES (0x970u - 0x398u)
+#define BLACK_VM_PIECES 32u
+#define BLACK_VM_KEPT 0x40000u
+#define BLACK_VM_BLOCKS 64u
+#define BLACK_VM_BLOCK_BYTES 0x4000u
+typedef struct BlackPiece { uint32_t at, bytes, kept; } BlackPiece;
+static BlackPiece black_p2_vm_piece[BLACK_VM_PIECES];
+static unsigned black_p2_vm_pieces;
+static uint8_t *black_p2_vm_kept;                     /* player two's contents of the pieces, end to end */
+static uint8_t *black_p2_vm_blocks;                   /* and of the pool's blocks */
+static uint32_t black_p2_vm_set, black_p2_vm_tops;    /* the tops' place in the kept pieces */
+static uint8_t black_p2_vm_anim[BLACK_ANIM_BYTES];
+static uint32_t black_anim_cache, black_anim_cache_bytes;
+static uint8_t *black_anim_cache_empty;
+
+/* The cache as the game builds it (950F0, ecx = it): kept, empty, to start it again from. */
+extern void sub_000950F0_gen(void);
+void sub_000950F0(void)
+{
+    const uint32_t cache = g_ecx;
+    uint32_t end;
+    sub_000950F0_gen();
+    if (!black_pc_ram_span(cache, 0x30u)) return;
+    end = GUEST32(cache + 0x20u) + GUEST32(cache + 0x24u);
+    if (end <= cache || end - cache > 0x10000u || !black_pc_ram_span(cache, end - cache)) return;
+    if (!black_anim_cache_empty && !(black_anim_cache_empty = (uint8_t *)malloc(0x10000u))) return;
+    black_anim_cache = cache;
+    black_anim_cache_bytes = end - cache;
+    memcpy(black_anim_cache_empty, (uint8_t *)(uintptr_t)g_xbox_mem_offset + cache, black_anim_cache_bytes);
+}
+
+static void black_anim_cache_clear(void)
+{
+    if (!black_anim_cache || GUEST32(BLACK_ANIM_CACHE) != black_anim_cache || !black_pc_ram_span(black_anim_cache, black_anim_cache_bytes))
+        return;
+    memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_anim_cache, black_anim_cache_empty, black_anim_cache_bytes);
+}
+
+static void black_vm_piece(uint32_t at, uint32_t bytes, uint32_t *used)
+{
+    unsigned i;
+    if (!at || !black_pc_ram_span(at, bytes) || black_p2_vm_pieces == BLACK_VM_PIECES || *used + bytes > BLACK_VM_KEPT) return;
+    for (i = 0; i < black_p2_vm_pieces; i++)
+        if (black_p2_vm_piece[i].at == at) return;
+    black_p2_vm_piece[black_p2_vm_pieces].at = at;
+    black_p2_vm_piece[black_p2_vm_pieces].bytes = bytes;
+    black_p2_vm_piece[black_p2_vm_pieces].kept = *used;
+    black_p2_vm_pieces++;
+    *used += bytes;
+}
+
+/* The pool: its blocks, how many, their size; 0 when it is not one this can keep. */
+static uint32_t black_vm_pool(uint32_t set, uint32_t *count, uint32_t *bytes)
+{
+    const uint32_t blocks = GUEST32(set + 0x8FCu);
+    *count = GUEST32(set + 0x90Cu);
+    *bytes = GUEST32(set + 0x908u);
+    if (!*count || *count > BLACK_VM_BLOCKS || !*bytes || *bytes > BLACK_VM_BLOCK_BYTES ||
+        !black_pc_ram_span(blocks, *count * 4u) || !black_pc_ram_span(GUEST32(set + 0x900u), *count * 4u))
+        return 0;
+    return blocks;
+}
+
+/* The pieces of the first-person state as they are now, and player two's copy of them. */
+static void black_p2_vm_take(uint32_t set)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    uint32_t used = 0, k, off, i, count, bytes, blocks;
+    if (!black_p2_vm_kept && !(black_p2_vm_kept = (uint8_t *)malloc(BLACK_VM_KEPT))) return;
+    if (!black_p2_vm_blocks && !(black_p2_vm_blocks = (uint8_t *)malloc(BLACK_VM_BLOCKS * BLACK_VM_BLOCK_BYTES))) return;
+    black_p2_vm_pieces = 0;
+    black_vm_piece(set + BLACK_VM_AT, BLACK_VM_BYTES, &used);
+    for (k = 0; k < 2u; k++) {
+        const uint32_t slot = set + 0x470u + k * 0x240u;
+        for (off = 0x30u; off < 0x50u; off += 4u) black_vm_piece(GUEST32(slot + off), 0xA0u, &used);
+        black_vm_piece(GUEST32(slot + 0x54u), 0x9D0u, &used);
+    }
+    black_p2_vm_tops = 0xFFFFFFFFu;
+    if ((blocks = black_vm_pool(set, &count, &bytes)) != 0) {
+        black_p2_vm_tops = used;
+        black_vm_piece(GUEST32(set + 0x900u), count * 4u, &used);
+        for (i = 0; i < count; i++)
+            if (black_pc_ram_span(GUEST32(blocks + i * 4u), bytes))
+                memcpy(black_p2_vm_blocks + i * BLACK_VM_BLOCK_BYTES, m + GUEST32(blocks + i * 4u), bytes);
+    }
+    for (i = 0; i < black_p2_vm_pieces; i++)
+        memcpy(black_p2_vm_kept + black_p2_vm_piece[i].kept, m + black_p2_vm_piece[i].at, black_p2_vm_piece[i].bytes);
+    if (black_pc_ram_span(BLACK_ANIM_AT, BLACK_ANIM_BYTES)) memcpy(black_p2_vm_anim, m + BLACK_ANIM_AT, BLACK_ANIM_BYTES);
+    /* Player two's copy does not own player one's playing animations: its weapons' setup (17E420) lets go of a
+     * slot's (17B0E0: the controller's +4, the slot's +58 and its loaded resources +90..+9C) before it takes its
+     * own, which would free player one's. */
+    for (k = 0; k < 2u; k++) {
+        uint8_t *const slot = black_p2_vm_kept + black_p2_vm_piece[0].kept + (0x470u + k * 0x240u - BLACK_VM_AT);
+        const uint32_t ctl = *(const uint32_t *)(slot + 0x54u);
+        *(uint32_t *)(black_p2_vm_kept + black_p2_vm_piece[0].kept + k * 0x6Cu + 0xCu) = 0; /* the animation set's */
+        *(uint32_t *)(slot + 0x58u) = 0;
+        slot[0xB9u] = 0;
+        memset(slot + 0x90u, 0, 0x10u);
+        for (i = 0; i < black_p2_vm_pieces; i++)
+            if (black_p2_vm_piece[i].at == ctl && black_p2_vm_piece[i].bytes == 0x9D0u)
+                *(uint32_t *)(black_p2_vm_kept + black_p2_vm_piece[i].kept + 4u) = 0;
+    }
+}
+
+static void black_vm_exchange(uint8_t *live, uint8_t *kept, uint32_t bytes)
+{
+    uint8_t held[0x1000];
+    uint32_t done, part;
+    for (done = 0; done < bytes; done += part) {
+        part = bytes - done < sizeof(held) ? bytes - done : (uint32_t)sizeof(held);
+        memcpy(held, live + done, part);
+        memcpy(live + done, kept + done, part);
+        memcpy(kept + done, held, part);
+    }
+}
+
+/* The pool's blocks are every animated model's (a model's is its +AC, which its pose makes the pool's current one at
+ * +8F8): only the first-person slots' blocks, player one's and player two's, are each player's. */
+static int black_vm_fp_block(uint32_t set, uint32_t i)
+{
+    unsigned k;
+    for (k = 0; k < 2u; k++) {
+        const uint32_t at = 0x470u + k * 0x240u + 0xACu;
+        if (GUEST32(set + at) == i || *(const uint32_t *)(black_p2_vm_kept + black_p2_vm_piece[0].kept + (at - BLACK_VM_AT)) == i)
+            return 1;
+    }
+    return 0;
+}
+
+/* Player two's copy of the first-person state (start), or that state exchanged with it in place (swap). */
+static void black_p2_vm(int start)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    const uint32_t set = black_pc_ram_span(0x002D12C8u, 4u) ? GUEST32(0x002D12C8u) : 0;
+    uint32_t count, bytes, blocks;
+    unsigned i;
+    if (start) {
+        black_p2_vm_set = black_pc_ram_span(set, 0x970u) ? set : 0;
+        black_p2_vm_pieces = 0;
+        if (black_p2_vm_set) black_p2_vm_take(set);
+        return;
+    }
+    if (!black_p2_vm_set || set != black_p2_vm_set) return;
+    if (black_pc_ram_span(BLACK_ANIM_AT, BLACK_ANIM_BYTES)) black_vm_exchange(m + BLACK_ANIM_AT, black_p2_vm_anim, BLACK_ANIM_BYTES);
+    black_anim_cache_clear();
+    if (black_p2_vm_tops != 0xFFFFFFFFu && (blocks = black_vm_pool(set, &count, &bytes)) != 0) {
+        const uint32_t tops = GUEST32(set + 0x900u);
+        for (i = 0; i < count; i++) {
+            const uint32_t block = GUEST32(blocks + i * 4u);
+            uint32_t *const top2 = (uint32_t *)(black_p2_vm_kept + black_p2_vm_tops + i * 4u), held;
+            const uint32_t mine = GUEST32(tops + i * 4u) - block, theirs = *top2 - block;
+            uint32_t len = mine > theirs ? mine : theirs;
+            if (!black_vm_fp_block(set, i)) continue;
+            if (len > bytes) len = bytes;
+            if (len && black_pc_ram_span(block, len)) black_vm_exchange(m + block, black_p2_vm_blocks + i * BLACK_VM_BLOCK_BYTES, len);
+            held = GUEST32(tops + i * 4u);
+            GUEST32(tops + i * 4u) = *top2;
+            *top2 = held;
+        }
+    }
+    for (i = 0; i < black_p2_vm_pieces; i++)
+        if (black_p2_vm_piece[i].kept != black_p2_vm_tops)
+            black_vm_exchange(m + black_p2_vm_piece[i].at, black_p2_vm_kept + black_p2_vm_piece[i].kept, black_p2_vm_piece[i].bytes);
+}
+
+/* The first-person weapons' files are read by one manager ([2D12D8], 0xD0 bytes, 1BC4C0): two records (+8 and +40,
+ * 0x38 bytes: +0 the heap a file is read into, +4 what was read, +8 and +C its sounds, +10 its sound bank, +1C how far
+ * its load is, +20..+2F which weapon), the one in use at +7C and the next at +80. A weapon picked up is read into the
+ * next one's heap (13 or 14, 0xE1800 bytes each), so a manager shared with player two hands one player's next weapon
+ * the heap the other's is playing from. The sounds and banks are the first-person sound pool's ([[2D0D60]+D3C8]+C,
+ * 0x1330 bytes, made by 152180: banks at +0 and +10 on 0x38000 bytes each, six sounds of 0x290 bytes from +360 on
+ * 0x18000 bytes each, the first four the weapons', the one playing +12C0). Player two has a manager of its own,
+ * reading into heaps 16 and 18 (which the game leaves unused) on memory of its own, and its own copy of the pool,
+ * exchanged in place with the actor, whose four weapon sounds and two banks are built on memory of its own. */
+#define BLACK_BANKS 0x002D12D8u
+#define BLACK_BANKS_BYTES 0xD0u
+#define BLACK_HEAPS 0x002D12ECu
+#define BLACK_BANK_BYTES 0xE1800u
+#define BLACK_FPV_BYTES 0x1330u
+#define BLACK_FPV_SOUNDS 0x360u
+#define BLACK_FPV_SOUND_BYTES 0x290u
+#define BLACK_FPV_SOUND_DATA 0x18000u
+#define BLACK_FPV_BANK_DATA 0x38000u
+extern uint32_t xbox_ContiguousAlloc(uint32_t size, uint32_t alignment);
+extern void sub_00141380(void);
+extern void sub_00141AD0(void);
+static const uint32_t black_p2_bank_heap[2] = { 16u, 18u };
+static uint32_t black_p2_banks, black_p2_bank_mem, black_p2_sound_banks[2], black_p2_bank_arg, black_p2_fpv_at;
+static int black_p2_banks_in;
+static uint8_t black_p2_fpv[BLACK_FPV_BYTES];
+
+static uint32_t black_fpv(void)
+{
+    uint32_t v;
+    if (!black_pc_ram_span(0x002D0D60u, 4u) || !black_pc_ram_span(v = GUEST32(0x002D0D60u) + 0xD3C8u, 4u) ||
+        !black_pc_ram_span(v = GUEST32(v) + 0xCu, 4u) || !black_pc_ram_span(v = GUEST32(v), BLACK_FPV_BYTES))
+        return 0;
+    return v;
+}
+
+static int black_p2_banks_make(void)
+{
+    if (black_p2_bank_mem) return 1;
+    black_p2_banks = xbox_HeapAlloc(BLACK_BANKS_BYTES, 16u);
+    black_p2_sound_banks[0] = xbox_HeapAlloc(0xC0u, 16u);
+    black_p2_sound_banks[1] = xbox_HeapAlloc(0xC0u, 16u);
+    black_p2_bank_arg = xbox_HeapAlloc(0x20u, 16u);
+    if (!black_p2_banks || !black_p2_sound_banks[0] || !black_p2_sound_banks[1] || !black_p2_bank_arg) return 0;
+    black_p2_bank_mem = xbox_ContiguousAlloc(2u * BLACK_BANK_BYTES + 4u * BLACK_FPV_SOUND_DATA + 2u * BLACK_FPV_BANK_DATA, 0x1000u);
+    return black_p2_bank_mem != 0;
+}
+
+/* Player two's manager, heaps and pool, made when it joins: its records empty, as before a level's first weapon. */
+static void black_p2_banks_take(void)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    const uint32_t fpv = black_fpv(), mgr = black_pc_ram_span(BLACK_BANKS, 4u) ? GUEST32(BLACK_BANKS) : 0;
+    static uint8_t held[BLACK_FPV_BYTES];
+    uint32_t off, sounds, banks;
+    BlackRegs r;
+    unsigned k, t;
+    black_p2_fpv_at = 0;
+    if (black_p2_banks_in || !fpv || GUEST32(fpv + 0x130Cu) != 9u || !black_pc_ram_span(mgr, BLACK_BANKS_BYTES) ||
+        !GUEST8(mgr + 0xC4u) || !black_p2_banks_make())
+        return;
+    sounds = black_p2_bank_mem + 2u * BLACK_BANK_BYTES;
+    banks = sounds + 4u * BLACK_FPV_SOUND_DATA;
+    for (k = 0; k < 2u; k++) {
+        const uint32_t h = BLACK_HEAPS + black_p2_bank_heap[k] * 0x24u, at = black_p2_bank_mem + k * BLACK_BANK_BYTES;
+        if (GUEST32(h) && GUEST32(h + 8u) != at) return;
+    }
+    for (k = 0; k < 2u; k++) {
+        const uint32_t h = BLACK_HEAPS + black_p2_bank_heap[k] * 0x24u, at = black_p2_bank_mem + k * BLACK_BANK_BYTES;
+        GUEST32(h) = 1u; GUEST32(h + 4u) = 0; GUEST32(h + 8u) = at; GUEST32(h + 0xCu) = at + BLACK_BANK_BYTES;
+        GUEST32(h + 0x10u) = at; GUEST32(h + 0x14u) = 4u; GUEST32(h + 0x18u) = 0; GUEST32(h + 0x1Cu) = 0xFFFFFFFFu;
+        GUEST32(h + 0x20u) = at;
+    }
+    /* the pool's weapon sounds and banks, built in place as 152180 builds them, and kept */
+    memcpy(held, m + fpv, BLACK_FPV_BYTES);
+    for (k = 0; k < 4u; k++) {
+        const uint32_t sound = fpv + BLACK_FPV_SOUNDS + k * BLACK_FPV_SOUND_BYTES;
+        memset(m + sound, 0, BLACK_FPV_SOUND_BYTES);
+        GUEST32(sound) = 0x002900C4u;
+        GUEST32(sound + 0x170u) = 0x0028C518u;
+        GUEST32(sound + 0x1E8u) = 0x0028C518u;
+        GUEST32(black_p2_bank_arg + 0xCu) = sounds + k * BLACK_FPV_SOUND_DATA;
+        GUEST32(black_p2_bank_arg + 0x10u) = BLACK_FPV_SOUND_DATA;
+        memset(&r, 0, sizeof(r));
+        r.esi = sound; r.ecx = black_p2_bank_arg;
+        black_guest_call(sub_00141AD0, &r, NULL, 0, 0x0015235Du);
+        GUEST8(sound + 0x98u) = held[BLACK_FPV_SOUNDS + k * BLACK_FPV_SOUND_BYTES + 0x98u];
+    }
+    for (t = 0; t < 2u; t++) {
+        const uint32_t name = fpv + t * 0x10u + 4u;
+        memset(m + black_p2_sound_banks[t], 0, 0xC0u);
+        memset(&r, 0, sizeof(r));
+        r.esi = black_p2_sound_banks[t]; r.edi = banks + t * BLACK_FPV_BANK_DATA; r.ecx = BLACK_FPV_BANK_DATA;
+        black_guest_call(sub_00141380, &r, &name, 1, 0x00152260u);
+        GUEST32(fpv + t * 0x10u) = black_p2_sound_banks[t];
+    }
+    memcpy(black_p2_fpv, m + fpv, BLACK_FPV_BYTES);
+    memcpy(m + fpv, held, BLACK_FPV_BYTES);
+    memcpy(m + black_p2_banks, m + mgr, BLACK_BANKS_BYTES);
+    for (off = 0x7Cu; off <= 0x80u; off += 4u)
+        if (GUEST32(black_p2_banks + off) - mgr < BLACK_BANKS_BYTES) GUEST32(black_p2_banks + off) += black_p2_banks - mgr;
+    for (k = 0; k < 2u; k++) {
+        const uint32_t rec = black_p2_banks + 8u + k * 0x38u, had = GUEST32(rec + 0x10u);
+        GUEST32(rec) = black_p2_bank_heap[k];
+        GUEST32(rec + 4u) = 0;
+        GUEST32(rec + 0x10u) = 0;
+        for (t = 0; t < 2u; t++)
+            if (had == *(const uint32_t *)(held + t * 0x10u)) GUEST32(rec + 0x10u) = black_p2_sound_banks[t];
+        GUEST32(rec + 0x14u) = 0; GUEST32(rec + 0x18u) = 0; GUEST32(rec + 0x1Cu) = 0;
+        memset(m + rec + 0x20u, 0, 0x12u);
+    }
+    GUEST32(black_p2_banks + 0x78u) = 0;
+    black_p2_fpv_at = fpv;
+}
+
+static void black_p2_banks_swap(void)
+{
+    uint32_t mgr;
+    if (!black_p2_fpv_at || (!black_p2_banks_in && black_fpv() != black_p2_fpv_at)) return;
+    mgr = GUEST32(BLACK_BANKS);
+    GUEST32(BLACK_BANKS) = black_p2_banks;
+    black_p2_banks = mgr;
+    black_vm_exchange((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_fpv_at, black_p2_fpv, BLACK_FPV_BYTES);
+    black_p2_banks_in = !black_p2_banks_in;
+}
+
+/* The effects the mission's characters hold ([2D1990]+65690): 0x50 of 0x70 bytes (+0..+1C its emitters, each with
+ * its matrix at +0), the live ones listed at +3440 (u16 indices, +3448 of them, +344A at most, the rest free; +3444
+ * each one's place in the list), each with its owner (+2300) and where on it (+2440: 0..7 a record of the owner's
+ * first-person slot, 8 the owner itself); and the ones asked for this frame (+26C0, 0x60 each, +3458 of them, owner
+ * +44). Both players are the actor in the core, so on each exchange the out player's effects take player two's shadow
+ * as their owner. A first-person effect (a muzzle flash) is placed in its owner's first-person model, which the views
+ * draw where their own player's is: each view leaves out the other player's. */
+#define BLACK_FX_AT 0x65690u
+#define BLACK_FX_SLOTS 0x50u
+#define BLACK_FX_ASKED 0x20u
+#define GUEST16(va) (*(uint16_t *)((uintptr_t)g_xbox_mem_offset + (va)))
+
+static uint32_t black_fx(void)
+{
+    const uint32_t fx = black_pc_ram_span(0x002D1990u, 4u) ? GUEST32(0x002D1990u) + BLACK_FX_AT : 0;
+    if (!fx || !black_pc_ram_span(fx, 0x3460u) || !black_pc_ram_span(GUEST32(fx + 0x3440u), BLACK_FX_SLOTS * 2u) ||
+        !black_pc_ram_span(GUEST32(fx + 0x3444u), BLACK_FX_SLOTS * 2u) || GUEST16(fx + 0x344Au) > BLACK_FX_SLOTS ||
+        GUEST16(fx + 0x3448u) > GUEST16(fx + 0x344Au) || GUEST16(fx + 0x3458u) > BLACK_FX_ASKED)
+        return 0;
+    return fx;
+}
+
+static void black_fx_owners(uint32_t in, uint32_t out)
+{
+    const uint32_t fx = black_fx();
+    unsigned i;
+    if (!fx) return;
+    for (i = 0; i < BLACK_FX_SLOTS; i++) {
+        const uint32_t at = fx + 0x2300u + i * 4u;
+        if (GUEST32(at) == in) GUEST32(at) = out;
+        else if (GUEST32(at) == out) GUEST32(at) = in;
+    }
+    for (i = 0; i < GUEST16(fx + 0x3458u); i++) {
+        const uint32_t at = fx + 0x26C0u + i * 0x60u + 0x44u;
+        if (GUEST32(at) == in) GUEST32(at) = out;
+        else if (GUEST32(at) == out) GUEST32(at) = in;
+    }
+}
+
+static uint32_t black_fx_hidden[BLACK_FX_SLOTS * 8u];
+static uint8_t black_fx_kept[BLACK_FX_SLOTS * 8u][0xA0];
+static unsigned black_fx_hidden_n;
+
+/* The out player's first-person effects go out of this view (show puts them back). */
+static void black_fx_hide(void)
+{
+    const uint32_t fx = black_fx();
+    unsigned k, e;
+    black_fx_hidden_n = 0;
+    if (!fx || !black_p2_playing()) return;
+    for (k = 0; k < GUEST16(fx + 0x3448u); k++) {
+        const unsigned i = GUEST16(GUEST32(fx + 0x3440u) + k * 2u);
+        if (i >= BLACK_FX_SLOTS || GUEST32(fx + 0x2300u + i * 4u) != black_p2_shadow || GUEST32(fx + 0x2440u + i * 4u) > 7u)
+            continue;
+        for (e = 0; e < 8u; e++) {
+            const uint32_t em = GUEST32(fx + i * 0x70u + e * 4u);
+            if (em <= 1u || !black_pc_ram_span(em, 0xA0u)) continue;
+            black_fx_hidden[black_fx_hidden_n] = em;
+            memcpy(black_fx_kept[black_fx_hidden_n], (uint8_t *)(uintptr_t)g_xbox_mem_offset + em, 0xA0u);
+            /* its place (+30, and +90 where it was) far below the world */
+            GUEST32(em + 0x34u) = GUEST32(em + 0x94u) = 0xC8C35000u;
+            black_fx_hidden_n++;
+        }
+    }
+}
+
+static void black_fx_show(void)
+{
+    unsigned k;
+    for (k = 0; k < black_fx_hidden_n; k++)
+        memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_fx_hidden[k], black_fx_kept[k], 0xA0u);
+    black_fx_hidden_n = 0;
+}
+
+/* The first-person muzzle flash ([2D1990]+4E1F0, 159CD0 on a shot): its weapon (+C4), texture (+C8), turn (+C0) and
+ * age (+C9, shown below 3, 15E6C0 each frame), drawn at the muzzle of the core's player (16B1E0). Player two keeps its
+ * own, exchanged with the actor, and ages it after its update. */
+#define BLACK_FLASH_AT 0x4E1F0u
+extern void sub_0015E6C0(void);
+extern void sub_0016BAA0(void);
+static uint8_t black_p2_flash[12];
+
+static uint32_t black_flash(void)
+{
+    const uint32_t f = black_pc_ram_span(0x002D1990u, 4u) ? GUEST32(0x002D1990u) + BLACK_FLASH_AT : 0;
+    return f && black_pc_ram_span(f, 0xD0u) ? f : 0;
+}
+
+static void black_flash_swap(void)
+{
+    const uint32_t f = black_flash();
+    uint8_t held[sizeof(black_p2_flash)];
+    if (!f) return;
+    memcpy(held, (uint8_t *)(uintptr_t)g_xbox_mem_offset + f + 0xC0u, sizeof(held));
+    memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + f + 0xC0u, black_p2_flash, sizeof(held));
+    memcpy(black_p2_flash, held, sizeof(held));
+}
+
+/* The first-person shells ([2D1990]+506D0: 14 of 0x80 bytes from +30), thrown from the muzzle's Bullet_Loc (162FE0,
+ * an animation's event), moved each frame about the core's player (16BAA0) and drawn in the world (1EE820). Player
+ * two keeps its own, exchanged with the actor, and moves them after its update. */
+#define BLACK_SHELLS_AT 0x506D0u
+#define BLACK_SHELLS_BYTES 0x730u
+static uint8_t black_p2_shells[BLACK_SHELLS_BYTES];
+
+static uint32_t black_shells(void)
+{
+    const uint32_t c = black_pc_ram_span(0x002D1990u, 4u) ? GUEST32(0x002D1990u) + BLACK_SHELLS_AT : 0;
+    return c && black_pc_ram_span(c, BLACK_SHELLS_BYTES) ? c : 0;
+}
+
+static void black_shells_swap(void)
+{
+    uint8_t *const at = black_shells() ? (uint8_t *)(uintptr_t)g_xbox_mem_offset + black_shells() : NULL;
+    uint8_t held[BLACK_SHELLS_BYTES];
+    if (!at) return;
+    memcpy(held, at, sizeof(held));
+    memcpy(at, black_p2_shells, sizeof(held));
+    memcpy(black_p2_shells, held, sizeof(held));
+}
+
+/* Exchanges the actors in the core and the camera owners: player two in, or back out. */
+static void black_p2_swap(void)
+{
+    uint32_t *const actor = (uint32_t *)((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_core + BLACK_ACTOR_AT);
+    uint32_t *const other = (uint32_t *)BLACK_P2_ACTOR;
+    const uint32_t owner = GUEST32(0x002D12B8u);
+    unsigned i;
+    if (!black_p2_in) {
+        black_p2_find_links();
+        /* the model player two is drawn with (+320, which its setup gives it as 1DA4F0 gives player one) is its own:
+         * its first entry is the weapon in hand (1D2490) */
+        if (other[0x320u / 4u] == actor[0x320u / 4u] && black_pc_ram_span(actor[0x320u / 4u], BLACK_P2_MODEL_BYTES)) {
+            uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+            memcpy(m + black_p2_parts + 0x430u, m + actor[0x320u / 4u], BLACK_P2_MODEL_BYTES);
+            other[0x320u / 4u] = black_p2_parts + 0x430u;
+        }
+    }
+    for (i = 0; i < BLACK_ACTOR_BYTES / 4u; i++) {
+        uint32_t held;
+        if (black_p2_link[i]) continue;
+        held = actor[i]; actor[i] = other[i]; other[i] = held;
+    }
+    GUEST32(0x002D12B8u) = black_p2_owner;
+    black_p2_owner = owner;
+    black_p2_vm(0);
+    black_p2_banks_swap();
+    black_fx_owners(black_p2_core + BLACK_ACTOR_AT, black_p2_shadow);
+    black_flash_swap();
+    black_shells_swap();
+    black_p2_in = !black_p2_in;
+}
+
+static void black_p2_enter(void) { if (!black_p2_in) black_p2_swap(); }
+static void black_p2_leave(void) { if (black_p2_in) black_p2_swap(); }
+
+
+/* The held effects' update (176BD0, esi = them: the ones asked for start, each follows its owner and runs) once for
+ * each player, while that player is the actor in the core, so player two's follow its own first-person model. */
+extern void sub_00176BD0_gen(void);
+void sub_00176BD0(void)
+{
+    static uint8_t asked[BLACK_FX_ASKED][0x60];
+    const uint32_t fx = g_esi, esp = g_esp, ret = black_pc_ram_span(esp, 4u) ? GUEST32(esp) : 0;
+    const uint32_t ebx = g_ebx, edi = g_edi, ebp = g_ebp, seh = g_seh_ebp, list = fx ? GUEST32(fx + 0x3440u) : 0;
+    const unsigned csr = _mm_getcsr();
+    uint16_t one[BLACK_FX_SLOTS], two[BLACK_FX_SLOTS], spare[BLACK_FX_SLOTS];
+    unsigned n1 = 0, n2 = 0, nf = 0, mine = 0, theirs = 0, cap, k;
+    uint32_t then;
+    if (!black_p2_playing() || black_p2_in || !fx || fx != black_fx()) { sub_00176BD0_gen(); return; }
+    cap = GUEST16(fx + 0x344Au);
+    then = GUEST32(fx + 0x3454u);
+    for (k = 0; k < cap; k++) {
+        const uint16_t i = GUEST16(list + k * 2u);
+        if (k >= GUEST16(fx + 0x3448u)) spare[nf++] = i;
+        else if (i < BLACK_FX_SLOTS && GUEST32(fx + 0x2300u + i * 4u) == black_p2_shadow) two[n2++] = i;
+        else one[n1++] = i;
+    }
+    /* player two's asked-for effects wait for its pass */
+    for (k = 0; k < GUEST16(fx + 0x3458u); k++) {
+        uint8_t *const at = (uint8_t *)(uintptr_t)g_xbox_mem_offset + fx + 0x26C0u + k * 0x60u;
+        if (*(const uint32_t *)(at + 0x44u) == black_p2_shadow) memcpy(asked[theirs++], at, 0x60u);
+        else memmove((uint8_t *)(uintptr_t)g_xbox_mem_offset + fx + 0x26C0u + mine++ * 0x60u, at, 0x60u);
+    }
+    GUEST16(fx + 0x3458u) = (uint16_t)mine;
+    /* player one's: its live ones, then the free ones; player two's past the end */
+    for (k = 0; k < n1; k++) GUEST16(list + k * 2u) = one[k];
+    for (k = 0; k < nf; k++) GUEST16(list + (n1 + k) * 2u) = spare[k];
+    for (k = 0; k < n2; k++) GUEST16(list + (n1 + nf + k) * 2u) = two[k];
+    GUEST16(fx + 0x3448u) = (uint16_t)n1;
+    GUEST16(fx + 0x344Au) = (uint16_t)(cap - n2);
+    for (k = 0; k < cap; k++) GUEST16(GUEST32(fx + 0x3444u) + GUEST16(list + k * 2u) * 2u) = (uint16_t)k;
+    sub_00176BD0_gen();
+    n1 = GUEST16(fx + 0x3448u);
+    for (k = 0; k < n1; k++) one[k] = GUEST16(list + k * 2u);
+    nf = 0;
+    for (k = n1; k < cap - n2; k++) spare[nf++] = GUEST16(list + k * 2u);
+    /* player two's, with player two in */
+    for (k = 0; k < n2; k++) GUEST16(list + k * 2u) = two[k];
+    for (k = 0; k < nf; k++) GUEST16(list + (n2 + k) * 2u) = spare[k];
+    for (k = 0; k < n1; k++) GUEST16(list + (n2 + nf + k) * 2u) = one[k];
+    GUEST16(fx + 0x3448u) = (uint16_t)n2;
+    GUEST16(fx + 0x344Au) = (uint16_t)(cap - n1);
+    for (k = 0; k < cap; k++) GUEST16(GUEST32(fx + 0x3444u) + GUEST16(list + k * 2u) * 2u) = (uint16_t)k;
+    for (k = 0; k < theirs; k++) memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + fx + 0x26C0u + k * 0x60u, asked[k], 0x60u);
+    GUEST16(fx + 0x3458u) = (uint16_t)theirs;
+    GUEST32(fx + 0x3454u) = then;
+    black_p2_enter();
+    g_esp = esp; GUEST32(esp) = ret;
+    g_ebx = ebx; g_esi = fx; g_edi = edi; g_ebp = ebp; g_seh_ebp = seh;
+    _mm_setcsr(csr);
+    sub_00176BD0_gen();
+    black_p2_leave();
+    n2 = GUEST16(fx + 0x3448u);
+    for (k = 0; k < n2; k++) two[k] = GUEST16(list + k * 2u);
+    nf = 0;
+    for (k = n2; k < cap - n1; k++) spare[nf++] = GUEST16(list + k * 2u);
+    for (k = 0; k < n1; k++) GUEST16(list + k * 2u) = one[k];
+    for (k = 0; k < n2; k++) GUEST16(list + (n1 + k) * 2u) = two[k];
+    for (k = 0; k < nf; k++) GUEST16(list + (n1 + n2 + k) * 2u) = spare[k];
+    GUEST16(fx + 0x3448u) = (uint16_t)(n1 + n2);
+    GUEST16(fx + 0x344Au) = (uint16_t)cap;
+    for (k = 0; k < cap; k++) GUEST16(GUEST32(fx + 0x3444u) + GUEST16(list + k * 2u) * 2u) = (uint16_t)k;
+}
+
+
+/* Player two starts as player one: the actor (its character load, 1DEC70's stage at +8E4, from the start) and the
+ * camera owner (what pointed into player one's points into player two's). The inventory (+278: weapons +298, current
+ * +29C, previous +2A0, slots +2BA, index +2BB) gets an empty weapon array of its own, so the load releases none of
+ * player one's weapons and takes player two's own from the pool. */
+static void black_p2_start(void)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    const uint32_t owner1 = GUEST32(0x002D12B8u), delta = black_p2_owner - owner1;
+    uint32_t *const words = (uint32_t *)BLACK_P2_ACTOR;
+    uint32_t off, v;
+    memcpy(BLACK_P2_ACTOR, m + black_p2_core + BLACK_ACTOR_AT, BLACK_ACTOR_BYTES);
+    memcpy(BLACK_P2_ACTOR + 0x8E4u, "\x01\0\0\0\0\0\0\0", 8);
+    /* the shadow's own grid node (+20) is in no cell (+30) and links to itself */
+    words[0x30u / 4u] = 0;
+    words[0x34u / 4u] = words[0x38u / 4u] = black_p2_shadow + 0x34u;
+    memset(m + black_p2_weapons, 0, BLACK_WEAPON_SLOTS * 4u);
+    words[0x298u / 4u] = black_p2_weapons;
+    /* the parts' state the draw fills in (+34C, 0x70 bytes, and +350, 0x3C0 bytes, as 1E03D0 makes them) */
+    if (black_pc_ram_span(words[0x34Cu / 4u], 0x70u) && black_pc_ram_span(words[0x350u / 4u], 0x3C0u)) {
+        memcpy(m + black_p2_parts, m + words[0x34Cu / 4u], 0x70u);
+        memcpy(m + black_p2_parts + 0x70u, m + words[0x350u / 4u], 0x3C0u);
+        words[0x34Cu / 4u] = black_p2_parts;
+        words[0x350u / 4u] = black_p2_parts + 0x70u;
+    }
+    words[0x29Cu / 4u] = 0;
+    words[0x2A0u / 4u] = 0;
+    BLACK_P2_ACTOR[0x2BBu] = 0xFF;
+    for (off = 0; off < BLACK_OWNER_BYTES; off += 4u) {
+        v = GUEST32(owner1 + off);
+        if (v - owner1 < BLACK_OWNER_BYTES) v += delta;
+        GUEST32(black_p2_owner + off) = v;
+    }
+    for (off = 0; off < BLACK_ACTOR_BYTES / 4u; off++)
+        if (words[off] - owner1 < BLACK_OWNER_BYTES) words[off] += delta;
+    black_p2_proxy = 0;
+    black_p2_source_ready = 0;
+    black_p2_use = 0;
+    black_p2_fresh = 1;
+    black_p2_ready = 1;
+    if (black_flash()) {
+        memcpy(black_p2_flash, (uint8_t *)(uintptr_t)g_xbox_mem_offset + black_flash() + 0xC0u, sizeof(black_p2_flash));
+        black_p2_flash[9] = 3;
+    }
+    if (black_shells()) {
+        unsigned k;
+        memcpy(black_p2_shells, (uint8_t *)(uintptr_t)g_xbox_mem_offset + black_shells(), sizeof(black_p2_shells));
+        for (k = 0; k < 14u; k++) memset(black_p2_shells + 0x30u + k * 0x80u, 0, 4u);
+    }
+    black_p2_vm(1);
+    black_p2_banks_take();
+}
+
+static int black_p2_make(void)
+{
+    BlackRegs r;
+    if (black_p2_owner) return 1;
+    black_p2_owner = xbox_HeapAlloc(BLACK_OWNER_BYTES, 16u);
+    black_p2_source = xbox_HeapAlloc(BLACK_SOURCE_BYTES, 16u);
+    black_p2_weapons = xbox_HeapAlloc(BLACK_WEAPON_SLOTS * 4u, 16u);
+    black_p2_shadow = xbox_HeapAlloc(BLACK_ACTOR_BYTES, 16u);
+    black_p2_parts = xbox_HeapAlloc(0x430u + BLACK_P2_MODEL_BYTES, 16u);
+    if (!black_p2_owner || !black_p2_source || !black_p2_weapons || !black_p2_shadow || !black_p2_parts ||
+        !black_pc_ram_span(black_p2_owner, BLACK_OWNER_BYTES) || !black_pc_ram_span(black_p2_weapons, BLACK_WEAPON_SLOTS * 4u) ||
+        !black_pc_ram_span(black_p2_shadow, BLACK_ACTOR_BYTES)) {
+        black_p2_owner = 0;
+        return 0;
+    }
+    memset((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_owner, 0, BLACK_OWNER_BYTES);
+    memset(&r, 0, sizeof(r));
+    r.esi = black_p2_owner;
+    black_guest_call(sub_00014380, &r, NULL, 0, 0x0020BDD1u);
+    return 1;
+}
+
+/* A proxy's body motion: [[[proxy+34]+C]+58]; its matrix rows are +40 +50 +60, the position +10 (116F0). */
+static uint32_t black_proxy_motion(uint32_t proxy)
+{
+    uint32_t v;
+    if (!black_pc_ram_span(proxy, 0x40u) || !black_pc_ram_span(v = GUEST32(proxy + 0x34u), 0x10u) ||
+        !black_pc_ram_span(v = GUEST32(v + 0xCu), 0x5Cu) || !black_pc_ram_span(v = GUEST32(v + 0x58u), 0xB0u))
+        return 0;
+    return v;
+}
+
+/* The world's character proxies: 20 at world+2320, in use where world+2960 is set (DF400 takes one, DBBE0 gives it
+ * back). DF400 does not look for a full pool, so player two never holds the last one an NPC needs. */
+static unsigned black_proxies_free(uint32_t world)
+{
+    unsigned k, n = 0;
+    for (k = 0; k < 0x14u; k++) n += !GUEST8(world + 0x2960u + k);
+    return n;
+}
+
+/* Each player as the other sees them: a soldier of the level's (a character of the pool [2D1980], 32 of 0x3C0 at
+ * +A0, each with its model instance +328 and part buffers +34C/+350 made at the mission's start by 1E03D0) copied
+ * into a free character, kept at its player's place and posed (1801B0) each update, and drawn (vtable +14) only in
+ * the other player's view. It is in no list of the world's: nothing else updates, draws or collides with it. */
+#define BLACK_CHAR_POOL_AT 0xA0u
+#define BLACK_CHAR_BYTES 0x3C0u
+#define BLACK_CHARS 32u
+extern void sub_0017E130(void);
+extern void sub_0017E420(void);
+extern void sub_001801B0(void);
+static uint32_t black_puppet[2];                      /* [0] player one, [1] player two */
+static uint32_t black_puppet_template, black_puppet_names;
+static int black_puppet_moving[2];
+static float black_puppet_was[2][3];
+
+static uint32_t black_char(unsigned i) { return GUEST32(0x002D1980u) + BLACK_CHAR_POOL_AT + i * BLACK_CHAR_BYTES; }
+
+/* Still a puppet: the soldier's template and no controller (a character the game spawns in its place has one). */
+static int black_puppet_ok(uint32_t ch)
+{
+    return ch && GUEST32(ch + 0x320u) == black_puppet_template && !GUEST32(ch + 0x324u);
+}
+
+/* A character of the pool's own: its node, lists, proxy, weapons and buffers stay the character's. */
+static int black_char_own(uint32_t off)
+{
+    return (off >= 0x20u && off < 0x58u) || off == 0xB0u || off == 0xB4u || (off >= 0x298u && off < 0x2A4u) ||
+           off == 0x328u || off == 0x34Cu || off == 0x350u || off == 0x37Cu;
+}
+
+static uint32_t black_puppet_make(uint32_t from, unsigned slot)
+{
+    const uint32_t ch = black_char(slot), template_ = GUEST32(from + 0x320u);
+    uint32_t off, args[1];
+    BlackRegs r;
+    for (off = 0; off < BLACK_CHAR_BYTES; off += 4u)
+        if (!black_char_own(off)) GUEST32(ch + off) = GUEST32(from + off);
+    GUEST32(ch + 0x30u) = 0;
+    GUEST32(ch + 0x34u) = GUEST32(ch + 0x38u) = ch + 0x34u;
+    GUEST32(ch + 0xB0u) = 0;
+    GUEST32(ch + 0xB4u) = 0;
+    GUEST32(ch + 0x324u) = 0;
+    GUEST32(ch + 0x29Cu) = 0;
+    GUEST32(ch + 0x2A0u) = 0;
+    GUEST8(ch + 0x13Bu) = 0;
+    memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + GUEST32(ch + 0x34Cu),
+           (const uint8_t *)(uintptr_t)g_xbox_mem_offset + GUEST32(from + 0x34Cu), 0x70u);
+    memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + GUEST32(ch + 0x350u),
+           (const uint8_t *)(uintptr_t)g_xbox_mem_offset + GUEST32(from + 0x350u), 0x3C0u);
+    /* its model instance takes the soldier's animations as 1DA4F0 gives them (17E420) */
+    memset(&r, 0, sizeof(r));
+    r.eax = ch;
+    r.esi = GUEST32(ch + 0x328u);
+    args[0] = GUEST32(0x002D12C8u) + 0xF8u + GUEST32(template_ + 8u) * 0x60u;
+    black_guest_call(sub_0017E420, &r, args, 1, 0x001DA640u);
+    fprintf(stderr, "[SPLIT] character %u is a player's soldier, a copy of %08X\n", slot, from);
+    return ch;
+}
+
+/* The puppets are made in free characters (the last ones) once the level has a soldier to copy, and again in others
+ * when the game takes theirs for a character of its own. */
+static void black_puppets_make(void)
+{
+    uint32_t from = 0;
+    unsigned i, k;
+    for (k = 0; k < 2u; k++)
+        if (black_puppet[k] && !black_puppet_ok(black_puppet[k])) black_puppet[k] = 0;
+    if (black_puppet[0] && black_puppet[1]) return;
+    if (!black_pc_ram_span(GUEST32(0x002D1980u), BLACK_CHAR_POOL_AT + BLACK_CHARS * BLACK_CHAR_BYTES)) return;
+    from = black_puppet[0] ? black_puppet[0] : black_puppet[1];
+    for (i = 0; i < BLACK_CHARS && !from; i++) {
+        const uint32_t ch = black_char(i), t = GUEST32(ch + 0x320u);
+        if (t && black_pc_ram_span(t, 0x60u) && black_pc_ram_span(GUEST32(ch + 0x328u), 0x240u)) from = ch;
+    }
+    if (!from) return;
+    if (!black_puppet_names && !(black_puppet_names = xbox_HeapAlloc(32u, 16u))) return;
+    /* a soldier's clips with a rifle: standing, and moving (as character 0 plays them) */
+    memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_puppet_names, "TM_AR_S_001\0\0\0\0\0TM_AR_S_MOV\0", 28);
+    if (!black_puppet[0] && !black_puppet[1]) black_puppet_template = GUEST32(from + 0x320u);
+    for (k = 0; k < 2u; k++) {
+        if (black_puppet[k]) continue;
+        for (i = BLACK_CHARS; i-- > 0;)
+            if (!GUEST32(black_char(i) + 0x320u) && black_pc_ram_span(GUEST32(black_char(i) + 0x328u), 0x240u)) break;
+        if (i >= BLACK_CHARS) return;
+        black_puppet_moving[k] = -1;
+        black_puppet[k] = black_puppet_make(from, i);
+    }
+}
+
+/* A puppet where its player is, standing or moving as its player does, posed for the update's time. */
+static void black_puppet_follow(unsigned who, uint32_t actor, uint32_t dt)
+{
+    const uint32_t ch = black_puppet[who];
+    uint32_t args[2], off;
+    float at[3], step = 0.0f, seconds;
+    int moving;
+    BlackRegs r;
+    if (!black_puppet_ok(ch)) return;
+    memcpy(at, (uint8_t *)(uintptr_t)g_xbox_mem_offset + actor + 0xA0u, 12);
+    memcpy(&seconds, &dt, 4);
+    for (off = 0; off < 3u; off += 2u) step += (at[off] - black_puppet_was[who][off]) * (at[off] - black_puppet_was[who][off]);
+    memcpy(black_puppet_was[who], at, 12);
+    moving = seconds > 0.0f && step > 0.25f * seconds * seconds;
+    if (moving != black_puppet_moving[who]) {
+        memset(&r, 0, sizeof(r));
+        r.eax = GUEST32(ch + 0x328u);
+        args[0] = black_puppet_names + (moving ? 16u : 0u);
+        black_guest_call(sub_0017E130, &r, args, 1, 0x0017F2C3u);
+        black_puppet_moving[who] = moving;
+    }
+    /* player one's actor keeps other values in its rows' fourth words: a transform has none */
+    for (off = 0x70u; off < 0xB0u; off += 4u) {
+        const uint32_t v = (off & 0xFu) == 0xCu && off < 0xA0u ? 0u : GUEST32(actor + off);
+        GUEST32(ch + off) = v;
+        GUEST32(ch + off + 0x60u) = v;
+    }
+    memset(&r, 0, sizeof(r));
+    r.eax = GUEST32(ch + 0x328u);
+    args[0] = dt;
+    args[1] = 0;
+    black_guest_call(sub_001801B0, &r, args, 2, 0x001F0C37u);
+}
+
+/* With player two out: a physics proxy of its own from the world's character pool (DF400) for the shadow, its body
+ * placed as player one's is to player one -- beside player one when player two has just joined -- and still. */
+static void black_p2_take_proxy(int beside_one)
+{
+    const uint32_t actor = black_p2_shadow, actor1 = black_p2_core + BLACK_ACTOR_AT;
+    const uint32_t one = black_proxy_motion(GUEST32(actor1 + 0xB4u));
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    uint32_t two, k;
+    BlackRegs r;
+    memset(&r, 0, sizeof(r));
+    r.ebx = GUEST32(0x002D45F4u);
+    if (!one || !black_pc_ram_span(r.ebx, 0x2980u) || black_proxies_free(r.ebx) < 2u) return;
+    black_guest_call(sub_000DF400, &r, &actor, 1, 0x001EBC8Cu);
+    black_p2_proxy = GUEST32(actor + 0xB4u);
+    if (!(two = black_proxy_motion(black_p2_proxy)) || two == one) {
+        fprintf(stderr, "[SPLIT] player two has no physics proxy of its own\n");
+        return;
+    }
+    /* rows are x, y, z and a word of the body's own (+2C links the moving bodies, +4C, +6C its index) */
+    for (k = 0x40u; k < 0x70u; k += 4u) if ((k & 0xFu) != 0xCu) GUEST32(two + k) = GUEST32(one + k);
+    for (k = 0; k < 3u; k++) {
+        float body1, feet1, feet2;
+        memcpy(&body1, m + one + 0x10u + k * 4u, 4);
+        memcpy(&feet1, m + actor1 + 0xA0u + k * 4u, 4);
+        memcpy(&feet2, m + actor + 0xA0u + k * 4u, 4);
+        if (beside_one && k == 0) feet2 += 0.75f;
+        memcpy(m + actor + 0xA0u + k * 4u, &feet2, 4);
+        memcpy(m + actor + 0x100u + k * 4u, &feet2, 4);
+        feet2 += body1 - feet1;
+        memcpy(m + two + 0x10u + k * 4u, &feet2, 4);
+    }
+    for (k = 0x20u; k < 0x40u; k += 4u) if ((k & 0xFu) != 0xCu) GUEST32(two + k) = 0;
+}
+
+/* With player two out: its proxy back to the pool (DBBE0 clears the shadow's +B4). */
+static void black_p2_drop_proxy(void)
+{
+    BlackRegs r;
+    if (!black_p2_proxy) return;
+    memset(&r, 0, sizeof(r));
+    r.ebx = GUEST32(0x002D45F4u);
+    black_guest_call(sub_000DBBE0, &r, &black_p2_proxy, 1, 0x001EBBAFu);
+    black_p2_proxy = 0;
+}
+
+/* The game's player setup on player two's actor, until it is done (it loads over several updates). */
+static void black_p2_setup(void)
+{
+    BlackRegs r;
+    uint32_t done;
+    black_p2_enter();
+    memset(&r, 0, sizeof(r));
+    r.edx = black_p2_core; r.eax = 0;
+    done = black_guest_call(sub_001E0E40, &r, NULL, 0, 0x001EE605u) & 0xFFu;
+    black_p2_leave();
+    if (done) {
+        black_p2_take_proxy(1);
+        black_p2_state = 2;
+        fprintf(stderr, "[SPLIT] player two joined after %u update(s)%s\n", black_p2_tries + 1u,
+                black_p2_proxy ? "" : "; it waits for a physics proxy");
+    } else if (++black_p2_tries == 600u) {
+        fprintf(stderr, "[SPLIT] player two's setup has not finished after 600 updates\n");
+    }
+}
+
+/* Player two's PC crosshair (pc_crosshair.h): its speed, its shots (its magazine, [[weapon+F4]+18], going down) and
+ * its zoom (+2A4), held still when player one's controller is (camera owner +821). */
+static void black_p2_crosshair(void)
+{
+    static float was[3];
+    static unsigned shots, loaded;
+    const uint8_t *const a = BLACK_P2_ACTOR;
+    const uint32_t weapon = *(const uint32_t *)(a + 0x29Cu);
+    float at[3], dt, zoom, step = 0.0f;
+    unsigned k, now = loaded;
+    memcpy(at, a + 0xA0u, 12);
+    memcpy(&dt, (uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_core + 0x1Cu, 4);
+    memcpy(&zoom, a + 0x2A4u, 4);
+    zoom = zoom >= 1.0f && zoom < 50.0f ? 1.0f / zoom : 1.0f;
+    for (k = 0; k < 3u; k += 2u) step += (at[k] - was[k]) * (at[k] - was[k]);
+    memcpy(was, at, 12);
+    if (black_pc_ram_span(weapon, 0x100u) && black_pc_ram_span(GUEST32(weapon + 0xF4u), 0x20u))
+        now = *(const uint16_t *)((uint8_t *)(uintptr_t)g_xbox_mem_offset + GUEST32(weapon + 0xF4u) + 0x18u);
+    if (now < loaded) shots += loaded - now;
+    loaded = now;
+    pc_crosshair_tick_for(1, !GUEST8(GUEST32(0x002D12B8u) + 0x821u), dt > 0.0f ? sqrtf(step) / dt : 0.0f, shots, zoom);
+}
+
+/* What the player could use or pick up ([2D0D64]+5848, found by the frame's use query 1EAF40 after the updates and
+ * shown by the HUD's prompt): each player's own, put in for its update and its HUD. */
+static uint32_t black_use_at(void)
+{
+    const uint32_t who = black_pc_ram_span(0x002D0D64u, 4u) ? GUEST32(0x002D0D64u) : 0;
+    return who && black_pc_ram_span(who + 0x5848u, 4u) ? who + 0x5848u : 0;
+}
+
+static void black_use_swap(void)
+{
+    const uint32_t at = black_use_at();
+    uint32_t held;
+    if (!at) return;
+    held = GUEST32(at);
+    GUEST32(at) = black_p2_use;
+    black_p2_use = held;
+}
+
+/* The AI's targets ([2D1988]+FAC: 32 of {+0 id, +4 kind (0 in use, 5 free), +8 the actor}, an actor's at its +378):
+ * player two's was taken with player two in the core, so it names the core's actor, player one whenever the soldiers
+ * think. It names player two's own. */
+static void black_p2_target(void)
+{
+    const uint32_t ai = black_pc_ram_span(0x002D1988u, 4u) ? GUEST32(0x002D1988u) : 0, index = GUEST32(black_p2_shadow + 0x378u);
+    uint32_t entry;
+    if (!ai || index >= 32u || !black_pc_ram_span(ai + 0xFACu, 32u * 12u)) return;
+    entry = ai + 0xFACu + index * 12u;
+    if (GUEST32(entry + 4u) == 0u && GUEST32(entry + 8u) == black_p2_core + BLACK_ACTOR_AT) GUEST32(entry + 8u) = black_p2_shadow;
+}
+
+/* After player one's update: player two's controller, on the second pad, then its actor (as 1F1080 does player one's).
+ * Without a physics proxy player two stands still. */
+static void black_p2_update(void)
+{
+    const uint32_t actor = black_p2_core + BLACK_ACTOR_AT;
+    const uint32_t pad1 = GUEST32(0x002D45E8u) + 0x98u;
+    uint32_t *const words = (uint32_t *)BLACK_P2_ACTOR;
+    uint32_t ctl, dt, source1;
+    uint8_t idle, packs2;
+    int ready;
+    unsigned k;
+    /* no input source (a scripted sequence): player two has none either, and still updates */
+    source1 = GUEST32(GUEST32(black_p2_core + 0x354u) + 0xA8u);
+    if (!black_pc_ram_span(source1, BLACK_SOURCE_BYTES)) source1 = 0;
+    /* player two's input source starts as player one's and keeps its own state (what was pressed) from then on */
+    if (source1 && !black_p2_source_ready) {
+        memcpy((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_source,
+               (const uint8_t *)(uintptr_t)g_xbox_mem_offset + source1, BLACK_SOURCE_BYTES);
+        black_p2_source_ready = 1;
+    }
+    GUEST32(black_p2_source + 0xCu) = pad1 + 0x120u;
+    /* the camera owner's +821 holds the controller still (cutscenes): player one's says when */
+    GUEST8(black_p2_owner + 0x821u) = GUEST8(GUEST32(0x002D12B8u) + 0x821u);
+    /* what in player two's actor reads player one's pad reads player two's */
+    for (k = 0; k < BLACK_ACTOR_BYTES / 4u && source1; k++) {
+        if (words[k] == source1) words[k] = black_p2_source;
+        else if (words[k] == pad1) words[k] = pad1 + 0x120u;
+    }
+    /* A suppressor is fitted or taken off with a clip the actor's animation request (+32C: kind, then its arguments)
+     * asks for (kind 13, +10 1 to fit, 0 to take off), either by the weapon itself (its state +D8: 17 asked to fit,
+     * 18 asked to take off) or by the mission (the intro's); the clip's event (1E8830) sets the weapon's +108 and the
+     * actor's +3A5. Only player one is asked: player two's weapon of the same kind (+E8) is asked as well, and has one
+     * when player one's does if player two joined after it was fitted. */
+    /* a scripted scene drives player one with the actor's scripted controller (+324 = +800 instead of the pad's +4F0,
+     * 1DF340): player two plays the scene as well, from where player one is in it */
+    {
+        const uint32_t a1 = black_p2_core + BLACK_ACTOR_AT, mine1 = GUEST32(a1 + 0x324u);
+        uint32_t *const mine2 = (uint32_t *)(BLACK_P2_ACTOR + 0x324u);
+        if (mine1 == a1 + 0x800u && *mine2 != a1 + 0x800u) {
+            memcpy(BLACK_P2_ACTOR + 0x800u, (uint8_t *)(uintptr_t)g_xbox_mem_offset + a1 + 0x800u, 0xE0u);
+            *mine2 = a1 + 0x800u;
+        } else if (mine1 != a1 + 0x800u && *mine2 == a1 + 0x800u) {
+            *mine2 = a1 + 0x4F0u;
+        }
+    }
+    {
+        const uint32_t a1 = black_p2_core + BLACK_ACTOR_AT, mine = GUEST32(a1 + 0x298u);
+        for (k = 0; k < BLACK_WEAPON_SLOTS; k++) {
+            const uint32_t two = GUEST32(black_p2_weapons + k * 4u);
+            unsigned j;
+            if (!black_pc_ram_span(two, 0x110u) || !black_pc_ram_span(mine, 8u)) continue;
+            for (j = 0; j < 2u; j++) {
+                const uint32_t one = GUEST32(mine + j * 4u);
+                uint32_t s1, s2;
+                if (!black_pc_ram_span(one, 0x110u) || GUEST32(one + 0xE8u) != GUEST32(two + 0xE8u)) continue;
+                s1 = GUEST32(one + 0xD8u);
+                s2 = GUEST32(two + 0xD8u);
+                /* joining while player one fits or takes one off: player two's first-person clip is that one too */
+                if (black_p2_fresh && s1 >= 0x17u && s1 <= 0x1Au) {
+                    GUEST32(two + 0xD8u) = s1;
+                    if (two == *(const uint32_t *)(BLACK_P2_ACTOR + 0x29Cu))
+                        memcpy(BLACK_P2_ACTOR + 0x32Cu, (uint8_t *)(uintptr_t)g_xbox_mem_offset + a1 + 0x32Cu, 0x14u);
+                    continue;
+                }
+                if (s2 >= 0x17u && s2 <= 0x1Au) continue;
+                else if ((s1 == 0x17u || s1 == 0x19u) && !GUEST8(two + 0x108u)) GUEST32(two + 0xD8u) = 0x17u;
+                else if ((s1 == 0x18u || s1 == 0x1Au) && GUEST8(two + 0x108u)) GUEST32(two + 0xD8u) = 0x18u;
+                else if (s1 < 0x17u || s1 > 0x1Au) {
+                    GUEST8(two + 0x108u) = GUEST8(one + 0x108u);
+                    if (two == *(const uint32_t *)(BLACK_P2_ACTOR + 0x29Cu)) BLACK_P2_ACTOR[0x3A5u] = GUEST8(one + 0x108u);
+                }
+            }
+        }
+    }
+    black_p2_fresh = 0;
+    if (!black_p2_proxy) black_p2_take_proxy(0);
+    idle = GUEST8(GUEST32(actor + 0x328u) + 0x234u);
+    /* Joining during player one's opening scene, after its scripted controller (+324 = +800) asked once (+8D1, 1DEB76)
+     * for the first-person clip that readies the weapon (kind 6): the scene's camera hands player two back before its
+     * own would, so player two's asks for it as it joins. */
+    ready = black_p2_ready && GUEST32(actor + 0x324u) == actor + 0x800u && GUEST8(actor + 0x8D1u);
+    black_p2_ready = 0;
+    packs2 = BLACK_P2_ACTOR[0x8E1u];
+    black_use_swap();
+    black_msg_swap();
+    black_p2_enter();
+    if (ready && (black_p2_ready_ask || (black_p2_ready_ask = xbox_HeapAlloc(0x20u, 16u)) != 0) &&
+        black_pc_ram_span(GUEST32(actor + 0x328u), 0x240u)) {
+        BlackRegs r;
+        memset((uint8_t *)(uintptr_t)g_xbox_mem_offset + black_p2_ready_ask, 0, 0x20u);
+        GUEST32(black_p2_ready_ask) = 6u;
+        memset(&r, 0, sizeof(r));
+        r.eax = black_p2_ready_ask;
+        r.ecx = GUEST32(actor + 0x328u);
+        black_guest_call(sub_0017F270, &r, NULL, 0, 0x001DEBC9u);
+    }
+    /* a scripted scene stops the first-person slot replaying its idle clip (+234, 1FD1F0): player two's as well, or its
+     * weapon never sees a clip finish (+B4) and never does what the scene asks */
+    GUEST8(GUEST32(actor + 0x328u) + 0x234u) = idle;
+    ctl = GUEST32(black_p2_core + 0x354u);
+    if (black_p2_proxy && black_pc_ram_span(ctl, 0xB0u)) {
+        GUEST32(ctl + 0xA8u) = source1 ? black_p2_source : 0;
+        dt = GUEST32(black_p2_core + 0x1Cu);
+        black_guest_method(ctl, 0, actor, NULL, 0, 0x001F11DAu);
+        black_guest_method(actor, 0, 0, &dt, 1, 0x001F1203u);
+        /* what 1F1080 does after the world's step for each of the core's entities (+5CB4): vtable +10 (1E5FA0) */
+        black_guest_method(actor, 4, 0, &dt, 1, 0x001F128Bu);
+        /* what the effects' update (1780B0) does after player one's: player two's muzzle flash ages and its shells
+         * move, after its own update as player one's do after theirs */
+        if (black_flash()) {
+            BlackRegs r;
+            memset(&r, 0, sizeof(r));
+            r.ecx = black_flash();
+            black_guest_call(sub_0015E6C0, &r, NULL, 0, 0x00178101u);
+        }
+        if (black_shells()) {
+            BlackRegs r;
+            const uint32_t shells = black_shells();
+            memset(&r, 0, sizeof(r));
+            black_guest_call(sub_0016BAA0, &r, &shells, 1, 0x001780F6u);
+        }
+        /* and what the frame asks after them (1EAF40): what the player in the core could use or pick up */
+        if (black_use_at()) {
+            BlackRegs r;
+            memset(&r, 0, sizeof(r));
+            r.eax = GUEST32(0x002D0D64u);
+            black_guest_call(sub_001EAF40, &r, NULL, 0, 0x001F12EEu);
+        }
+    }
+    black_p2_leave();
+    black_use_swap();
+    if (black_msg_in) black_msg_swap();
+    /* player two's pickup or use showed its count: player one's half shows player one's */
+    if (BLACK_P2_ACTOR[0x8E1u] != packs2 && BLACK_P2_ACTOR[0x8E1u] != GUEST8(actor + 0x8E1u))
+        black_hud_packs(GUEST8(actor + 0x8E1u));
+    black_p2_target();
+    black_p2_crosshair();
+    black_puppets_make();
+    dt = GUEST32(black_p2_core + 0x1Cu);
+    black_puppet_follow(0, actor, dt);
+    black_puppet_follow(1, black_p2_shadow, dt);
+}
+
+static void black_p2_tick(void)
+{
+    if (!pc_split_enabled() || !black_pc_ram_span(0x002D45D4u, 4u) || !black_pc_ram_span(0x002D12B8u, 4u)) return;
+    black_p2_core = GUEST32(0x002D45D4u);
+    if (!black_pc_ram_span(black_p2_core, 0x5CC0u)) return;
+    if (GUEST32(black_p2_core + 0x5AE0u) != BLACK_CORE_RUNNING) {
+        if (black_p2_state) fprintf(stderr, "[SPLIT] player two left: the mission is loading\n");
+        black_p2_state = 0;
+        black_puppet[0] = black_puppet[1] = 0;
+        return;
+    }
+    if (!black_p2_make()) return;
+    if (black_p2_state == 0) {
+        black_p2_start();
+        black_p2_state = 1;
+        black_p2_tries = 0;
+    }
+    if (black_p2_state == 1) black_p2_setup();
+    else black_p2_update();
+}
+
+void sub_001F1080(void)
+{
+    sub_001F1080_gen();
+    black_p2_tick();
+}
+
+/* A character asks for a proxy (DF400, ebx = world): when the pool is full, player two gives its own back first. */
+void sub_000DF400(void)
+{
+    const uint32_t world = g_ebx, asker = GUEST32(g_esp + 4u);
+    if (black_p2_proxy && asker != black_p2_shadow && black_proxies_free(world) == 0) {
+        const int was_in = black_p2_in;
+        black_p2_leave();
+        black_p2_drop_proxy();
+        if (was_in) black_p2_enter();
+        fprintf(stderr, "[SPLIT] player two gave its physics proxy to a character; it waits for another\n");
+    }
+    sub_000DF400_gen();
+}
+
+/* The mission's players give their proxies back (1EBB40, [esp+4] = core): player two's first, with its +378 (1E0E40's,
+ * DB5B0), as 1EBB40 does each player's. */
+void sub_001EBB40(void)
+{
+    if (black_p2_proxy && GUEST32(g_esp + 4u) == black_p2_core) {
+        BlackRegs r;
+        black_p2_leave();
+        memset(&r, 0, sizeof(r));
+        r.ebx = GUEST32(0x002D45F4u);
+        r.ecx = GUEST32(black_p2_shadow + 0x378u);
+        if (r.ecx) black_guest_call(sub_000DB5B0, &r, &r.ebx, 1, 0x001EBB98u);
+        black_p2_drop_proxy();
+    }
+    sub_001EBB40_gen();
+}
+
+/* The world's draw walks the grid (D1500 on core+4960) and draws each node in view through 1B7440 (the owner's
+ * vtable +14). The players' one node is wherever the last player to move left it, so a view can miss its own player
+ * (and its first-person weapon): with two players, the node is passed over and the player in the core is drawn after
+ * the walk, as the walk would draw it. */
+extern void sub_000D1500_gen(void);
+extern void sub_001B7440_gen(void);
+extern void sub_001C7690_gen(void);
+
+/* A query of the world's bodies (CC1F0) poses the characters it finds (1C7690, [esp+4] = the body, +34 its owner).
+ * The player out of the core is not one of them: its first-person model is the other player's while it is out. */
+void sub_001C7690(void)
+{
+    const uint32_t body = GUEST32(g_esp + 4u);
+    if (black_p2_playing() && black_pc_ram_span(body, 0x38u) && GUEST32(body + 0x34u) == black_p2_shadow) {
+        g_eax = (g_eax & ~0xFFu) | 1u;
+        g_esp += 4u;
+        return;
+    }
+    sub_001C7690_gen();
+}
+
+void sub_001B7440(void)
+{
+    if (black_p2_playing() && GUEST32(g_esp + 4u) == black_p2_core + BLACK_ACTOR_AT + 0x20u) {
+        g_eax = (g_eax & ~0xFFu) | 1u;
+        g_esp += 4u;
+        return;
+    }
+    sub_001B7440_gen();
+}
+
+void sub_000D1500(void)
+{
+    static const uint32_t partly = 0;
+    const uint32_t grid = g_edi;
+    sub_000D1500_gen();
+    if (black_p2_playing() && grid == black_p2_core + 0x4960u) {
+        const uint32_t other = black_puppet[black_p2_in ? 0 : 1];
+        black_guest_method(black_p2_core + BLACK_ACTOR_AT, 5, 0, &partly, 1, 0x001B745Eu);
+        if (black_puppet_ok(other)) black_guest_method(other, 5, 0, &partly, 1, 0x001B745Eu);
+    }
+}
+
+/* Player two's camera: its camera owner's update (vtable +8, 2033A0 and then D2F40) into the world camera, bound to
+ * its entity until player two's view is drawn. The audio listener stays player one's. */
+static void black_p2_camera(uint32_t camera)
+{
+    uint32_t sound, listener = 0, saved_listener[0x60 / 4];
+    unsigned i;
+    sound = GUEST32(0x002D0D60u);
+    if (black_pc_ram_span(sound, 0xD384u)) listener = GUEST32(sound + 0xD380u);
+    if (listener && !black_pc_ram_span(listener + 0x20u, 0x60u)) listener = 0;
+    if (listener) for (i = 0; i < 0x60u / 4u; i++) saved_listener[i] = GUEST32(listener + 0x20u + i * 4u);
+    black_p2_enter();
+    GUEST32(camera + 0x68u) = GUEST32(0x002D12B8u) + 0x740u;
+    black_split_pass = 3;
+    black_guest_method(GUEST32(0x002D12B8u), 2, 0, NULL, 0, 0x0020F842u);
+    black_split_pass = 0;
+    black_p2_leave();
+    if (listener) for (i = 0; i < 0x60u / 4u; i++) GUEST32(listener + 0x20u + i * 4u) = saved_listener[i];
+}
+/* END BLACK_SPLITSCREEN */
+
+/* BEGIN BLACK_SPLITSCREEN (the passes) */
+static int black_split_view;                          /* 1 or 2 while that player's world is drawn */
+static int black_split_hud;                           /* player one's HUD is being drawn: player two's follows */
+
+static void black_split_mark(int player, int mode, int slot)
+{
+    uint32_t device, physical;
+    int r[4];
+    if (!black_pc_ram_span(0x0027BFF8u, 4u)) return;
+    device = GUEST32(0x0027BFF8u);
+    if (!black_pc_ram_span(device, 4u)) return;
+    physical = xbox_PhysicalAddressOf(GUEST32(device));
+    if (physical >= 0x08000000u) return;
+    pc_split_rect(player, r);
+    kelvin_mark_view(0x80000000u + physical, mode, slot, r[0], r[1], r[2], r[3]);
+}
+
+static void black_split_call(void (*fn)(void), uint32_t eax, uint32_t esi, uint32_t edi, const uint32_t *args,
+                             unsigned n, uint32_t ret)
+{
+    BlackRegs r;
+    memset(&r, 0, sizeof(r));
+    r.eax = eax; r.esi = esi; r.edi = edi;
+    black_guest_call(fn, &r, args, n, ret);
+}
+
+/* The clear 20BAC0 makes before the world, for a view's own frame: Clear(0, NULL, 0xF3, 0, 1.0f, 0). */
+static void black_split_clear(void)
+{
+    static const uint32_t args[6] = { 0u, 0u, 0xF3u, 0u, 0x3F800000u, 0u };
+    black_split_call(sub_00268880, g_eax, g_esi, g_edi, args, 6, 0x0020BADFu);
+}
+
+/* D2F40 for the world camera, called the way 2033A0 calls it; player two's at the native lens (2888C8). */
+static void black_split_produce(uint32_t camera, int pass)
+{
+    const uint32_t owner = GUEST32(0x002D12B8u), lens = GUEST32(owner + 0x750u);
+    if (pass == 2) GUEST32(owner + 0x750u) = GUEST32(0x002888C8u);
+    black_split_pass = pass;
+    black_split_call(sub_000D2F40, g_eax, g_esi, camera, NULL, 0, 0x0020359Fu);
+    black_split_pass = 0;
+    GUEST32(owner + 0x750u) = lens;
+}
+
+void sub_001EE820(void)
+{
+    const uint32_t esp = g_esp, ebx = g_ebx, esi = g_esi, edi = g_edi, ebp = g_ebp, seh = g_seh_ebp;
+    const unsigned csr = _mm_getcsr();
+    uint32_t camera, ret, player;
+    if (!pc_split_enabled() || !(camera = black_photo_world_camera()) || !black_pc_ram_span(esp, 8u)) {
+        sub_001EE820_gen();
+        return;
+    }
+    ret = GUEST32(esp);
+    player = GUEST32(esp + 4u);
+    black_split_view = 1;
+    black_split_mark(0, BLACK_VIEW_FRAME, 1);
+    black_split_clear();
+    black_fx_hide();
+    sub_001EE820_gen();
+    black_fx_show();
+    g_esp = esp; GUEST32(esp) = ret; GUEST32(esp + 4u) = player;
+    g_ebx = ebx; g_esi = esi; g_edi = edi; g_ebp = ebp; g_seh_ebp = seh;
+    _mm_setcsr(csr);
+    black_split_view = 2;
+    if (black_p2_playing()) {
+        const uint32_t bind = GUEST32(camera + 0x68u);
+        black_p2_camera(camera);
+        black_split_mark(1, BLACK_VIEW_FRAME, 2);
+        black_split_clear();
+        black_p2_enter();
+        black_fx_hide();
+        sub_001EE820_gen();
+        black_fx_show();
+        black_p2_leave();
+        GUEST32(camera + 0x68u) = bind;
+    } else {
+        black_split_produce(camera, 2);
+        black_split_mark(1, BLACK_VIEW_FRAME, 2);
+        black_split_clear();
+        sub_001EE820_gen();
+    }
+    black_split_view = 0;
+    black_split_produce(camera, 1);
+    black_split_mark(0, BLACK_VIEW_FIT, 0);
+    black_split_hud = 1;
+}
+
+/* 129340 is the last of the HUD's three layers the world's callers draw (13C050 with 0, 121E60, 13C050 with 1, then
+ * this). After player one's, the same three go into player two's half. */
+extern void sub_00129340_gen(void);
+extern void sub_0013C050(void);
+extern void sub_00121E60(void);
+extern void sub_0012C3A0(void);
+
+/* The HUD's elements ([2D12E4]: lists at +A0, 0xA8 apart, +23C of them, linked at +8) take the player's values in
+ * their update (12C3A0, as 1F1080 does each frame) and animate what changed. The ones that show the player keep player
+ * two's state of their own: put in for its update (with the frame's time) and its draw, kept afterwards, and player
+ * one's put back as it was. An element's state is taken as reaching the next element in memory (at most its own size).
+ * What each player's update put in the elements' sprites is its own; the ammo counter's (its bullets, and the cases
+ * thrown out on a shot) are each player's own sprites, and the other player's cases are not shown in its half. */
+#define BLACK_HUD_POOLS_AT 0x002DB790u
+#define BLACK_HUD_POOLS_END 0x002E7100u
+#define BLACK_HUD_AMMO_VTABLE 0x00290F28u
+#define BLACK_HUD_MSG_VTABLE 0x00290F74u
+#define BLACK_HUD_SPRITES 64u
+#define BLACK_HUD_ELEMENTS 128u
+#define BLACK_HUD_ELEMENT_BYTES 0xC00u
+static uint32_t black_hud_at[BLACK_HUD_ELEMENTS], black_hud_bytes[BLACK_HUD_ELEMENTS];
+static uint8_t black_hud_p2[BLACK_HUD_ELEMENTS][BLACK_HUD_ELEMENT_BYTES], black_hud_p1[BLACK_HUD_ELEMENTS][BLACK_HUD_ELEMENT_BYTES];
+static unsigned black_hud_count;
+static int black_hud_p2_kept;
+
+static int black_hud_order(const void *a, const void *b)
+{
+    const uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+    return x < y ? -1 : x > y;
+}
+
+/* How far an element's state reaches: the health panel (0xEC0 bytes from 130830: 290F90, 290FC4 at +C0, 290FB8 at
+ * +C80) and the ammo panel (0x2F0 from 130870: 290F84, 290FAC at +30, 290F28 at +E0). */
+static uint32_t black_hud_size(uint32_t vt)
+{
+    switch (vt) {
+    case 0x00290F90u: return 0xC0u;
+    case 0x00290FC4u: return 0xBC0u;
+    case 0x00290FB8u: return 0x240u;
+    case 0x00290F84u: return 0x30u;
+    case 0x00290FACu: return 0xB0u;
+    case 0x00290F28u: return 0x210u;
+    case 0x00290F9Cu: case 0x00290F64u: return 0x30u;
+    case 0x00290EECu: return 0x170u;
+    default: return 0x400u;
+    }
+}
+
+/* The elements in memory order, each with the bytes up to the next; nonzero when they are the ones last seen. */
+static int black_hud_elements(void)
+{
+    const uint32_t hud = GUEST32(0x002D12E4u);
+    uint32_t at[BLACK_HUD_ELEMENTS], layer, e;
+    unsigned n = 0, i, layers;
+    int same;
+    if (!black_pc_ram_span(hud, 0x240u)) return -1;
+    layers = GUEST8(hud + 0x23Cu);
+    for (layer = 0; layer < layers && layer < 3u; layer++)
+        for (e = GUEST32(hud + 0xA0u + layer * 0xA8u); e && n < BLACK_HUD_ELEMENTS && black_pc_ram_span(e, 0x10u); e = GUEST32(e + 8u))
+            at[n++] = e;
+    qsort(at, n, sizeof(at[0]), black_hud_order);
+    same = n == black_hud_count;
+    for (i = 0; i < n; i++) {
+        uint32_t bytes = i + 1u < n ? at[i + 1u] - at[i] : 0x100u;
+        const uint32_t most = black_hud_size(GUEST32(at[i]));
+        if (bytes > most) bytes = most;
+        if (!black_pc_ram_span(at[i], bytes)) bytes = 0;
+        same = same && black_hud_at[i] == at[i];
+        black_hud_at[i] = at[i];
+        black_hud_bytes[i] = bytes;
+    }
+    black_hud_count = n;
+    return same;
+}
+
+/* The elements that show the player (their update reads the player in the core, or the player's own values are put
+ * in them): the two panels (290F90 with 290FC4 and 290FB8; 290F84 with 290FAC and the ammo counter 290F28), 290F9C,
+ * 290F64 and 290EEC. The others (the mission's texts, its title cards) are the mission's: both halves show the same. */
+static int black_hud_mine(uint32_t vt)
+{
+    switch (vt) {
+    case 0x00290F90u: case 0x00290FC4u: case 0x00290FB8u: case 0x00290F84u: case 0x00290FACu: case 0x00290F28u:
+    case 0x00290F9Cu: case 0x00290F64u: case 0x00290EECu:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static void black_hud_copy(uint8_t (*to)[BLACK_HUD_ELEMENT_BYTES], int from_game)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    unsigned i;
+    for (i = 0; i < black_hud_count; i++) {
+        if (black_hud_bytes[i] < 4u || !black_hud_mine(GUEST32(black_hud_at[i]))) continue;
+        if (from_game) memcpy(to[i], m + black_hud_at[i], black_hud_bytes[i]);
+        else memcpy(m + black_hud_at[i], to[i], black_hud_bytes[i]);
+    }
+}
+
+/* A sprite: its data from +0 (place, size, colour +10..1C, texture +30, layer +38, how it is drawn +3C), its links
+ * at -8 and -4; 0x50 bytes in all. */
+static int black_hud_sprite(uint32_t p)
+{
+    if (p < BLACK_HUD_POOLS_AT + 8u || p + 0x48u > BLACK_HUD_POOLS_END) return 0;
+    return GUEST32(p + 0x3Cu) == 0x000D8D90u || GUEST32(p + 0x3Cu) == 0x000D9110u;
+}
+
+/* The sprites an ammo counter's state (`state`, `bytes` long) points at. */
+static unsigned black_hud_sprites(const uint8_t *state, uint32_t bytes, uint32_t *out)
+{
+    unsigned n = 0, k, j;
+    for (k = 0; k + 4u <= bytes && n < BLACK_HUD_SPRITES; k += 4u) {
+        const uint32_t p = *(const uint32_t *)(state + k);
+        if (!black_hud_sprite(p)) continue;
+        for (j = 0; j < n && out[j] != p; j++) {}
+        if (j == n) out[n++] = p;
+    }
+    return n;
+}
+
+static int black_hud_has(const uint32_t *set, unsigned n, uint32_t p)
+{
+    unsigned j;
+    for (j = 0; j < n; j++)
+        if (set[j] == p) return 1;
+    return 0;
+}
+
+/* Player two's ammo sprites, kept while player one's are in. */
+static uint32_t black_hud_p2_sprite[BLACK_HUD_SPRITES];
+static uint8_t black_hud_p2_sprite_data[BLACK_HUD_SPRITES][0x50];
+static unsigned black_hud_p2_sprites;
+
+static int black_hud_ammo(void)
+{
+    unsigned i;
+    for (i = 0; i < black_hud_count; i++)
+        if (black_hud_bytes[i] >= 4u && GUEST32(black_hud_at[i]) == BLACK_HUD_AMMO_VTABLE) return (int)i;
+    return -1;
+}
+
+static void black_hud_hide(uint32_t p) { GUEST32(p + 0x1Cu) = 0; }
+
+/* The other elements' sprites (the health bar's among them) are the same ones for both players: what each player's
+ * update put in them (their data, not their links) is its own. Only a sprite both players' states hold in the same
+ * place: one an element has let go of (12E790 clears its pointers) may be another element's by now. */
+#define BLACK_HUD_PANEL_SPRITES 128u
+#define BLACK_HUD_SPRITE_DATA 0x48u
+static uint32_t black_hud_p2_panel[BLACK_HUD_PANEL_SPRITES];
+static uint8_t black_hud_p2_panel_data[BLACK_HUD_PANEL_SPRITES][BLACK_HUD_SPRITE_DATA];
+static unsigned black_hud_p2_panels;
+
+static unsigned black_hud_panel(uint32_t *out)
+{
+    unsigned n = 0, i, k, j;
+    for (i = 0; i < black_hud_count; i++) {
+        const uint32_t vt = black_hud_bytes[i] >= 4u ? GUEST32(black_hud_at[i]) : 0;
+        if (!black_hud_mine(vt) || vt == BLACK_HUD_AMMO_VTABLE) continue;
+        for (k = 0; k + 4u <= black_hud_bytes[i] && n < BLACK_HUD_PANEL_SPRITES; k += 4u) {
+            const uint32_t p = *(const uint32_t *)(black_hud_p1[i] + k);
+            if (p != *(const uint32_t *)(black_hud_p2[i] + k) || !black_hud_sprite(p)) continue;
+            for (j = 0; j < n && out[j] != p; j++) {}
+            if (j == n) out[n++] = p;
+        }
+    }
+    return n;
+}
+
+/* The pack count the HUD's movie shows ("HealthPacks" in _level1, as the pickup 1EA6B0 sets it). The movie is one
+ * for both halves: each half shows its player's. */
+extern void sub_000E87B0(void);
+extern void sub_00101260(void);
+static void black_hud_packs(int count)
+{
+    const uint32_t movie = GUEST32(0x002D199Cu);
+    uint32_t args[4];
+    BlackRegs r;
+    if (!black_pc_ram_span(movie, 0x3960u)) return;
+    memset(&r, 0, sizeof(r));
+    r.edi = (uint32_t)count;
+    args[3] = black_guest_call(sub_000E87B0, &r, NULL, 0, 0x001EA6EAu);
+    if (!args[3]) return;
+    args[0] = 0x0028F274u;
+    args[1] = 0;
+    args[2] = 1;
+    memset(&r, 0, sizeof(r));
+    r.eax = movie + 0x38C9u;
+    black_guest_call(sub_00101260, &r, args, 4, 0x001EA6FBu);
+}
+
+/* The messages element (vtable 290F74, 0x2B20 bytes, 1314E0) shows what the player could use (+1C..+27, its texts
+ * from +2510, +2B10..+2B13) and what it picked up: everything put in it (12B510) comes from the player in the core
+ * (the use query 1EAF40 and the pickups, 1BED90). Player two has one of its own, with the sprites it points at:
+ * exchanged with player one's for its update and its HUD, which updates it with time passing. */
+#define BLACK_HUD_MSG_BYTES 0x2B20u
+#define BLACK_MSG_SPRITES 256u
+static uint8_t black_msg_p2[BLACK_HUD_MSG_BYTES];
+static uint32_t black_msg_at, black_msg_spr[BLACK_MSG_SPRITES];
+static uint8_t black_msg_spr_p2[BLACK_MSG_SPRITES][0x50];
+static unsigned black_msg_sprs;
+
+static uint32_t black_hud_msg(void)
+{
+    unsigned i;
+    for (i = 0; i < black_hud_count; i++)
+        if (black_hud_bytes[i] >= 4u && GUEST32(black_hud_at[i]) == BLACK_HUD_MSG_VTABLE &&
+            black_pc_ram_span(black_hud_at[i], BLACK_HUD_MSG_BYTES))
+            return black_hud_at[i];
+    return 0;
+}
+
+static void black_msg_swap(void)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    const uint32_t msg = black_msg_at;
+    uint8_t held[0x50];
+    unsigned k;
+    if (!msg || !black_pc_ram_span(msg, BLACK_HUD_MSG_BYTES) || GUEST32(msg) != BLACK_HUD_MSG_VTABLE) {
+        black_msg_at = 0;
+        black_msg_in = 0;
+        return;
+    }
+    black_vm_exchange(m + msg, black_msg_p2, BLACK_HUD_MSG_BYTES);
+    for (k = 0; k < black_msg_sprs; k++) {
+        memcpy(held, m + black_msg_spr[k] - 8u, 0x50u);
+        memcpy(m + black_msg_spr[k] - 8u, black_msg_spr_p2[k], 0x50u);
+        memcpy(black_msg_spr_p2[k], held, 0x50u);
+    }
+    black_msg_in = !black_msg_in;
+}
+
+/* Player two's, made from player one's when the element is new (at the start of a mission). */
+static void black_msg_take(uint32_t msg)
+{
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    uint32_t n = 0, k, j;
+    if (black_msg_in || msg == black_msg_at) return;
+    black_msg_at = msg;
+    if (!msg) return;
+    memcpy(black_msg_p2, m + msg, BLACK_HUD_MSG_BYTES);
+    for (k = 0; k + 4u <= BLACK_HUD_MSG_BYTES && n < BLACK_MSG_SPRITES; k += 4u) {
+        const uint32_t p = *(const uint32_t *)(black_msg_p2 + k);
+        if (!black_hud_sprite(p)) continue;
+        for (j = 0; j < n && black_msg_spr[j] != p; j++) {}
+        if (j == n) black_msg_spr[n++] = p;
+    }
+    black_msg_sprs = n;
+    for (k = 0; k < n; k++) memcpy(black_msg_spr_p2[k], m + black_msg_spr[k] - 8u, 0x50u);
+}
+
+static void black_hud_update(void)
+{
+    uint32_t args[2];
+    args[0] = GUEST32(0x002D12E4u);
+    args[1] = 0;
+    black_split_call(sub_0012C3A0, g_eax, g_esi, g_edi, args, 2, 0x001F12FEu);
+}
+
+void sub_00129340(void)
+{
+    static const uint32_t below = 0u, above = 1u;
+    static uint32_t one[BLACK_HUD_SPRITES], panel[BLACK_HUD_PANEL_SPRITES];
+    static uint8_t one_data[BLACK_HUD_SPRITES][0x50], panel_data[BLACK_HUD_PANEL_SPRITES][BLACK_HUD_SPRITE_DATA];
+    uint8_t *const m = (uint8_t *)(uintptr_t)g_xbox_mem_offset;
+    const int hud = black_split_hud;
+    unsigned ones = 0, panels = 0, k;
+    uint32_t msg = 0;
+    int own = 0, packs1 = 0, packs2 = 0;
+    black_split_hud = 0;
+    sub_00129340_gen();
+    if (!hud || !pc_split_enabled()) return;
+    black_split_mark(1, BLACK_VIEW_FIT, 0);
+    if (black_p2_playing()) {
+        const int same = black_hud_elements();
+        own = same >= 0;
+        if (own) {
+            const int ammo = black_hud_ammo();
+            black_hud_copy(black_hud_p1, 1);
+            ones = ammo >= 0 ? black_hud_sprites(black_hud_p1[ammo], black_hud_bytes[ammo], one) : 0;
+            for (k = 0; k < ones; k++) memcpy(one_data[k], m + one[k] - 8u, 0x50u);
+            if (same && black_hud_p2_kept) {
+                panels = black_hud_panel(panel);
+                for (k = 0; k < panels; k++) memcpy(panel_data[k], m + panel[k], BLACK_HUD_SPRITE_DATA);
+                black_hud_copy(black_hud_p2, 0);
+                for (k = 0; k < black_hud_p2_sprites; k++)
+                    memcpy(m + black_hud_p2_sprite[k] - 8u, black_hud_p2_sprite_data[k], 0x50u);
+                for (k = 0; k < black_hud_p2_panels; k++)
+                    if (black_hud_has(panel, panels, black_hud_p2_panel[k]))
+                        memcpy(m + black_hud_p2_panel[k], black_hud_p2_panel_data[k], BLACK_HUD_SPRITE_DATA);
+            }
+            /* player one's cases out of player two's half */
+            for (k = 0; k < ones; k++)
+                if (!black_hud_has(black_hud_p2_sprite, black_hud_p2_sprites, one[k]) && same && black_hud_p2_kept)
+                    black_hud_hide(one[k]);
+            black_msg_take(black_hud_msg());
+            if ((msg = black_msg_at) != 0) black_msg_swap();
+            black_use_swap();
+            black_p2_enter();
+            packs1 = BLACK_P2_ACTOR[0x8E1u];
+            packs2 = GUEST8(black_p2_core + BLACK_ACTOR_AT + 0x8E1u);
+            if (packs1 != packs2) black_hud_packs(packs2);
+            black_hud_update();
+            for (k = 0; k < black_hud_count; k++) {
+                uint32_t dt = GUEST32(black_p2_core + 0x1Cu);
+                if (black_hud_bytes[k] >= 4u && black_hud_mine(GUEST32(black_hud_at[k])))
+                    black_guest_method(black_hud_at[k], 1, 0, &dt, 1, 0x0012C3CEu);
+            }
+            if (msg && black_msg_in) {
+                uint32_t dt = GUEST32(black_p2_core + 0x1Cu);
+                black_guest_method(msg, 1, 0, &dt, 1, 0x0012C3CEu);
+            }
+        } else {
+            black_use_swap();
+            black_p2_enter();
+        }
+    }
+    black_split_call(sub_0013C050, g_eax, GUEST32(0x002D12E4u), g_edi, &below, 1, 0x0020BB04u);
+    black_split_call(sub_00121E60, g_eax, g_esi, GUEST32(0x002D199Cu), NULL, 0, 0x0020BB0Fu);
+    black_split_call(sub_0013C050, g_eax, GUEST32(0x002D12E4u), g_edi, &above, 1, 0x0020BB1Cu);
+    black_split_call(sub_00129340_gen, GUEST32(0x002D19A4u), g_esi, g_edi, NULL, 0, 0x0020BB26u);
+    if (black_p2_playing()) {
+        black_p2_leave();
+        black_use_swap();
+        if (own) {
+            const int ammo = black_hud_ammo();
+            black_hud_copy(black_hud_p2, 1);
+            black_hud_p2_kept = 1;
+            if (black_msg_in) black_msg_swap();
+            black_hud_p2_sprites = ammo >= 0 ? black_hud_sprites(black_hud_p2[ammo], black_hud_bytes[ammo], black_hud_p2_sprite) : 0;
+            for (k = 0; k < black_hud_p2_sprites; k++) memcpy(black_hud_p2_sprite_data[k], m + black_hud_p2_sprite[k] - 8u, 0x50u);
+            black_hud_p2_panels = black_hud_panel(black_hud_p2_panel);
+            for (k = 0; k < black_hud_p2_panels; k++)
+                memcpy(black_hud_p2_panel_data[k], m + black_hud_p2_panel[k], BLACK_HUD_SPRITE_DATA);
+            black_hud_copy(black_hud_p1, 0);
+            for (k = 0; k < ones; k++) memcpy(m + one[k] - 8u, one_data[k], 0x50u);
+            for (k = 0; k < panels; k++) memcpy(m + panel[k], panel_data[k], BLACK_HUD_SPRITE_DATA);
+            if (packs1 != packs2) black_hud_packs(packs1);
+            /* player two's cases out of player one's half */
+            for (k = 0; k < black_hud_p2_sprites; k++)
+                if (!black_hud_has(one, ones, black_hud_p2_sprite[k])) black_hud_hide(black_hud_p2_sprite[k]);
+        }
+    }
+}
+/* END BLACK_SPLITSCREEN */
 
 /* BEGIN BLACK_WEAPON_TRACE
  * Native death/drop observations only. The title's actor policy, remaining
@@ -1367,16 +3193,31 @@ static void black_motion_blur_refresh(void)
     fprintf(stderr, "[BLACK] motion blur %s (original guest effect)\n", off ? "off" : "original");
 }
 
+static uint32_t black_split_blur[3][5];
+static int black_split_blur_kept[3];
+
 void sub_00168A30(void)
 {
     const uint32_t effect = g_esi;
+    unsigned i;
     const unsigned int caller_csr = _mm_getcsr();
     black_motion_blur_refresh();
     /* Native environment/logging/initialization must not change the guest
      * producer's controls or sticky flags, including the first call. */
     _mm_setcsr(caller_csr);
+    /* split-screen: each player's camera blurs against its own last position (+00, the time +24) */
+    if (black_split_view && black_split_blur_kept[black_split_view]) {
+        for (i = 0; i < 4u; i++) GUEST32(effect + i * 4u) = black_split_blur[black_split_view][i];
+        GUEST32(effect + 0x24u) = black_split_blur[black_split_view][4];
+    }
     sub_00168A30_gen();
-    if (black_motion_blur_off)
+    if (black_split_view) {
+        for (i = 0; i < 4u; i++) black_split_blur[black_split_view][i] = GUEST32(effect + i * 4u);
+        black_split_blur[black_split_view][4] = GUEST32(effect + 0x24u);
+        black_split_blur_kept[black_split_view] = 1;
+    }
+    /* photo mode keeps photos sharp: the camera it turns is not a fast look */
+    if (black_motion_blur_off || pc_photo_active())
         GUEST32(effect + 0x20u) = 0u;
 }
 /* END BLACK_PC_MOTION_BLUR */
@@ -1402,7 +3243,7 @@ void sub_001772E0(void)
     PcVideoSettings video;
     pc_video_get(&video);
     _mm_setcsr(caller_csr);
-    if (video.action_blur_off) GUEST32(effect + 0x34u) = 0u;
+    if (video.action_blur_off || pc_photo_active()) GUEST32(effect + 0x34u) = 0u;   /* photo mode: no reload/aim blur */
     sub_001772E0_gen();
     GUEST32(effect + 0x34u) = mode;
 }
@@ -2768,11 +4609,184 @@ static void black_mouse_look(uint32_t camera)
     _mm_setcsr(guest_csr);
 }
 
+/* BEGIN BLACK_PC_CROSSHAIR
+ * What the PC crosshair (xboxrecomp src/video/pc_crosshair.c) is told once per gameplay update, from the look
+ * integrator below: whether the player is in control, the speed of the player's actor (world position at +A0..A8 of
+ * [2D45D4]+30), the mission's bullets fired (u16 at +48 of [[2D12CC]], the results screen's TOTAL BULLETS FIRED)
+ * and the camera zoom ([[camera+8C]+2A4], 1 unzoomed). Hits and kills: the characters are the objects with vtable
+ * 28C1E8 (type 1 at +C4, 3C0 bytes, a weapon at +29C); a host thread finds them about once a second and each update
+ * watches their health (float at +2F0, 100 when whole, falling in steps to 0), their death flag (+3AD, set by the
+ * native death handlers 17AD70, 17C270, 1B6B80 and 1E68B0) and their disarm flag (+3AC: a shot knocked the weapon
+ * out of their hands). Any of them within two seconds of the player firing is the player's: a kill, or a hit.
+ */
+#include "pc_crosshair.h"
+#include "pc_debug.h"
+
+#define BLACK_SOLDIER_VTABLE 0x0028C1E8u
+#define BLACK_SOLDIERS 96u
+static volatile LONG black_xh_list_gen;
+static uint32_t black_xh_list[BLACK_SOLDIERS];
+static volatile LONG black_xh_list_n;
+static SRWLOCK black_xh_lock = SRWLOCK_INIT;
+
+static DWORD WINAPI black_xh_scan(LPVOID unused)
+{
+    (void)unused;
+    for (;;) {
+        uint32_t found[BLACK_SOLDIERS], o;
+        unsigned n = 0;
+        for (o = 0x80000000u; o < 0x84000000u && n < BLACK_SOLDIERS; o += 0x20u)
+            if (GUEST32(o) == BLACK_SOLDIER_VTABLE && black_pc_ram_span(o, 0x3B0u)) found[n++] = o;
+        AcquireSRWLockExclusive(&black_xh_lock);
+        memcpy(black_xh_list, found, n * sizeof(found[0]));
+        InterlockedExchange(&black_xh_list_n, (LONG)n);
+        InterlockedIncrement(&black_xh_list_gen);
+        ReleaseSRWLockExclusive(&black_xh_lock);
+        Sleep(1000);
+    }
+}
+
+/* The soldiers a player's bullets hurt (1E74B0, a soldier's bullet damage: ecx = it, [esp+18] = who fired), and
+ * when: a soldier's loss is a hit marker only on the crosshair of the player who caused it. */
+#define BLACK_HITS 32u
+static uint32_t black_hit_soldier[BLACK_HITS];
+static ULONGLONG black_hit_at[BLACK_HITS];
+static int black_hit_player[BLACK_HITS];
+static unsigned black_hit_next;
+
+extern void sub_001E74B0_gen(void);
+void sub_001E74B0(void)
+{
+    const uint32_t core = black_pc_ram_span(0x002D45D4u, 4u) ? GUEST32(0x002D45D4u) : 0;
+    if (core && black_pc_ram_span(g_esp, 0x1Cu) && GUEST32(g_esp + 0x18u) == core + 0x30u) {
+        const unsigned k = black_hit_next++ % BLACK_HITS;
+        black_hit_soldier[k] = g_ecx;
+        black_hit_at[k] = GetTickCount64();
+        black_hit_player[k] = black_p2_in;
+    }
+    sub_001E74B0_gen();
+}
+
+/* The latest player whose bullets hurt this soldier in the last moment, or -1.
+ * Traverse insertion order backwards: two players can hit in the same clock tick. */
+static int black_hit_by(uint32_t soldier)
+{
+    const ULONGLONG now = GetTickCount64();
+    unsigned i;
+    if (!soldier) return -1;
+    for (i = 0; i < BLACK_HITS; i++) {
+        const unsigned k = (black_hit_next - 1u - i) % BLACK_HITS;
+        if (black_hit_soldier[k] == soldier && now - black_hit_at[k] < 1500u) return black_hit_player[k];
+    }
+    return -1;
+}
+
+static void black_crosshair_tick(uint32_t camera)
+{
+    static int started;
+    static LARGE_INTEGER frequency, last;
+    static float lx, ly, lz;
+    static int have_last;
+    static uint32_t watched[BLACK_SOLDIERS];
+    static uint8_t dead[BLACK_SOLDIERS], disarmed[BLACK_SOLDIERS];
+    static float health[BLACK_SOLDIERS];
+    static unsigned nwatched;
+    static LONG watched_gen;
+    LARGE_INTEGER now;
+    uint32_t actor, stats_ptr, zoom_object;
+    unsigned shots = 0, i;
+    float speed = 0.0f, zoom = 1.0f;
+    const unsigned csr = _mm_getcsr();
+    fenv_t environment;
+    fegetenv(&environment);
+    fesetenv(FE_DFL_ENV);
+    _mm_setcsr(0x1F80u);
+    if (!started) {
+        HANDLE thread = CreateThread(NULL, 0, black_xh_scan, NULL, 0, NULL);
+        started = 1;
+        if (thread) { SetThreadPriority(thread, THREAD_PRIORITY_BELOW_NORMAL); CloseHandle(thread); }
+        QueryPerformanceFrequency(&frequency);
+    }
+    QueryPerformanceCounter(&now);
+    if (!black_pc_ram_span(0x002D45D4u, 4u)) goto done;
+    actor = GUEST32(0x002D45D4u) + 0x30u;
+    if (black_pc_ram_span(actor, 0xACu)) {
+        const float x = black_input_f32(actor + 0xA0u), y = black_input_f32(actor + 0xA4u), z = black_input_f32(actor + 0xA8u);
+        const double dt = have_last ? (double)(now.QuadPart - last.QuadPart) / (double)frequency.QuadPart : 0.0;
+        if (dt > 0.0005 && dt < 0.25) {
+            const float dx = x - lx, dy = y - ly, dz = z - lz;
+            speed = (float)(sqrt((double)dx * dx + 0.5 * (double)dy * dy + (double)dz * dz) / dt);
+        }
+        lx = x; ly = y; lz = z; last = now; have_last = 1;
+        pc_debug_game_row(0, "POSITION", "%.1f   %.1f   %.1f", x, y, z);
+        pc_debug_game_row(1, "SPEED", "%.1f", speed);
+    }
+    if (black_pc_ram_span(0x002D12CCu, 4u) && black_pc_ram_span(stats_ptr = GUEST32(0x002D12CCu), 4u) &&
+        black_pc_ram_span(GUEST32(stats_ptr), 0x4Au))
+        shots = *(const uint16_t *)((uintptr_t)g_xbox_mem_offset + GUEST32(stats_ptr) + 0x48u);
+    zoom_object = black_pc_ram_span(camera, 0x90u) ? GUEST32(camera + 0x8Cu) : 0;
+    if (black_pc_ram_span(zoom_object, 0x2A8u)) {
+        const float factor = black_input_f32(zoom_object + 0x2A4u);
+        if (factor >= 1.0f && factor < 50.0f) zoom = 1.0f / factor;
+    }
+    pc_crosshair_tick(!black_pc_input_gameplay_blocked_query(), speed, shots, zoom);
+    /* hits and kills: the soldiers' health and flags */
+    if (InterlockedCompareExchange(&black_xh_list_gen, 0, 0) != watched_gen) {
+        AcquireSRWLockShared(&black_xh_lock);
+        watched_gen = black_xh_list_gen;
+        nwatched = (unsigned)black_xh_list_n;
+        for (i = 0; i < nwatched; ++i) {
+            const uint32_t s = black_xh_list[i];
+            unsigned k;
+            uint8_t was = 0xFF, was_disarmed = 0xFF;
+            float was_health = -1.0f;
+            for (k = 0; k < BLACK_SOLDIERS && watched[k] != s; ++k) {}
+            if (k < BLACK_SOLDIERS) { was = dead[k]; was_disarmed = disarmed[k]; was_health = health[k]; }
+            watched[i] = s;
+            dead[i] = was;
+            disarmed[i] = was_disarmed;
+            health[i] = was_health;
+        }
+        ReleaseSRWLockShared(&black_xh_lock);
+    }
+    for (i = 0; i < nwatched; ++i) {
+        const uint32_t s = watched[i];
+        uint8_t flag, lost;
+        float hp;
+        int by;
+        if (!black_pc_ram_span(s, 0x3B0u) || GUEST32(s) != BLACK_SOLDIER_VTABLE) { dead[i] = disarmed[i] = 0xFF; health[i] = -1.0f; continue; }
+        flag = *(const uint8_t *)((uintptr_t)g_xbox_mem_offset + s + 0x3ADu) ? 1 : 0;
+        lost = *(const uint8_t *)((uintptr_t)g_xbox_mem_offset + s + 0x3ACu) ? 1 : 0;
+        hp = black_input_f32(s + 0x2F0u);
+        if (!(hp >= 0.0f && hp <= 10000.0f)) hp = -1.0f;
+        if ((by = black_hit_by(s)) >= 0) {
+            if (flag && dead[i] == 0) { pc_crosshair_hit_for(by, PCX_MARK_KILL); fprintf(stderr, "[XHAIR] kill %08X by %d\n", s, by); }
+            else if (!flag && dead[i] == 0 &&
+                     ((lost && disarmed[i] == 0) || (hp >= 0.0f && health[i] >= 0.0f && hp < health[i]))) {
+                pc_crosshair_hit_for(by, PCX_MARK_HIT);
+                fprintf(stderr, "[XHAIR] hit %08X %.1f by %d\n", s, hp, by);
+            }
+        }
+        dead[i] = flag;
+        disarmed[i] = lost;
+        health[i] = hp;
+    }
+done:
+    fesetenv(&environment);
+    _mm_setcsr(csr);
+}
+/* END BLACK_PC_CROSSHAIR */
+
 void sub_001BD3F0(void)
 {
     const uint32_t camera = g_esi;
     const uint32_t stack = g_esp;
     const unsigned int caller_csr = _mm_getcsr();
+    if (black_p2_in) {
+        /* player two's camera: its pad only, and the mouse and crosshair stay player one's */
+        sub_001BD3F0_gen();
+        return;
+    }
     pc_input_init();
     _mm_setcsr(caller_csr);              /* first-call logging must not touch the guest's control word */
     pc_input_gameplay_tick();
@@ -2792,6 +4806,7 @@ void sub_001BD3F0(void)
     _mm_setcsr(caller_csr);
     sub_001BD3F0_gen();
     black_mouse_look(camera);
+    black_crosshair_tick(camera);
 
 }
 

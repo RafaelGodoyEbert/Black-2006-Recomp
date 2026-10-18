@@ -4,7 +4,7 @@ if(NOT WIN32)
     message(FATAL_ERROR "These native movie input and overlay regressions require Windows.")
 endif()
 set(XBOXRECOMP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/xboxrecomp"
-    CACHE PATH "Pinned XboxRecomp checkout with patches/xboxrecomp.patch applied")
+    CACHE PATH "XboxRecomp submodule (third_party/xboxrecomp)")
 set(BLACK_MANUAL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../src/recomp_manual.c"
     CACHE FILEPATH "Production authored movie wrapper source")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -29,11 +29,12 @@ target_link_libraries(movie-input-test PRIVATE user32)
 # page or controls profile load is requested.
 add_executable(movie-overlay-test test_overlay.c
     "${XBOXRECOMP_DIR}/src/video/pc_menu.c"
+    "${XBOXRECOMP_DIR}/src/video/pc_photo.c"
     "${XBOXRECOMP_DIR}/src/video/pc_movie_skip.c"
     "${XBOXRECOMP_DIR}/src/input/pc_input.c"
     "${XBOXRECOMP_DIR}/src/input/pc_controls.c")
 target_compile_definitions(movie-overlay-test PRIVATE PC_MOVIE_SKIP_TEST)
-target_link_libraries(movie-overlay-test PRIVATE user32 gdi32)
+target_link_libraries(movie-overlay-test PRIVATE user32 gdi32 shell32 ole32)
 
 add_executable(movie-wrapper-test test_wrapper.c)
 target_include_directories(movie-wrapper-test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")

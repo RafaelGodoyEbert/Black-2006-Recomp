@@ -4,6 +4,7 @@
 #include "pc_movie_skip.h"
 #include "pc_video_menu.h"
 #include "pc_input.h"
+#include "pc_controls.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

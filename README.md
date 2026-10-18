@@ -6,24 +6,84 @@ keyboard and mouse controls, XInput controller support, video settings, a PC
 launcher, and native audio output. Movies are enabled by default. The Windows
 build can also run on x86_64 Linux through Wine/Proton; see [Linux setup](docs/linux.md).
 
-## Release launchers
+## The launcher
 
-The starter release includes **BLACK PC Launcher.exe** for one-click play and
-**BLACK PC Settings.exe** for settings. Supply your own original Xbox files in
-`game/`, then open **Build BLACK.cmd** on Windows or **Build BLACK.sh** on Linux
-with the build prerequisites installed. After that, open the play launcher to
-use your saved settings.
+**BLACK Launcher** sets the game up and starts it. It is written in C++ on [Walnut](https://github.com/StudioCherno/Walnut)
+and drawn like the game's own menu pages, with the game's menu fonts once your disc is in place.
 
-Linux can generate and compile the complete game without a Windows installation;
-see [Linux build and setup](docs/linux.md). Use **Play BLACK.sh** or **BLACK Settings.sh**
-with Wine/Proton. **Install Linux Shortcuts.sh** creates clickable desktop entries.
-The public starter contains
-host source and compiled host launchers; game executables, generated game code,
+- **Your disc**: choose an ISO (XISO or a full Redump dump) or a folder of extracted files, or drop it onto the
+  window. The launcher checks it is the supported release, then copies it into `game/` with progress; a stopped
+  copy carries on where it left off.
+- **Build the game** turns your disc into the PC game. It looks for the tools that needs (Visual Studio's C++
+  tools, CMake, Python and Rust), installs the missing ones with winget when you ask, then runs each step with
+  its progress: preparing the tools, translating the code from your disc, setting up the build, compiling and
+  making the menu languages. A stopped build carries on where it left off, a failed one shows the step and its
+  output, and everything is logged in `reports/build-<date and time>.log`.
+- **Play** starts the game and keeps its output in `reports/launcher-<date and time>/`. While it runs, the same row
+  stops it. `BLACK Launcher --play` starts it with no window, for shortcuts.
+- **Settings**: display, graphics, controls with key bindings read by key position (as the game stores them),
+  game options and the menu language, and diagnostics. Changes are saved at once to `local/video.ini`,
+  `local/controls.ini` and `local/xbox-launcher.json`, which the game's own settings pages also edit.
+  **Diagnostics** turns on the detailed traces and prepares a GitHub issue about the last game run, without your
+  folder names, for you to check and send.
+- **Save game**: rename a profile slot, open or lock missions and set their results, or unlock them all. Every save
+  backs the profile up first (`local/profile-backups/`), and any backup can be put back.
+- It speaks the six menu languages (Settings > Game > Menu language).
+
+See [launcher/README.md](launcher/README.md) to build or change it.
+
+| Main menu | Your disc |
+| --- | --- |
+| ![Main menu](docs/images/launcher-main.png) | ![Choosing a disc](docs/images/launcher-disc.png) |
+| **Checking the disc** | **Copying** |
+| ![Review before copying](docs/images/launcher-disc-review.png) | ![Copying with progress](docs/images/launcher-copying.png) |
+| **Settings** | **Key bindings** |
+| ![Display settings](docs/images/launcher-settings.png) | ![Key bindings](docs/images/launcher-bindings.png) |
+| **Save game** | **In Portuguese** |
+| ![Save game missions](docs/images/launcher-save.png) | ![The main menu in Brazilian Portuguese](docs/images/launcher-pt-br.png) |
+
+## HD textures
+
+The game can use [BLACK HD Reimagined](#credits-and-licensing), a texture pack made by HD REIMAGINED for the PS2
+version in PCSX2. It is not included here.
+
+To install it:
+
+1. Download the pack from ModDB:
+   [BLACK HD Reimagined Texture Pack](https://www.moddb.com/mods/black-hd-reimagined/addons/black-hd-reimagined-texture-pack).
+2. Make a folder named `texture_pack_hd` next to `BLACK Launcher.exe`.
+3. Extract the download into it. Any layout of subfolders works: the PCSX2 one
+   (`texture_pack_hd/SLUS-21376/replacements/...`) is fine as it is.
+4. In the launcher, choose **Settings > Game > Textures: HD PACK**, then **Play**. **ORIGINAL** goes back to the
+   game's own textures.
+
+The pack's files are named by PS2 hashes that mean nothing to the Xbox version. Instead,
+[`textures/black-hd-reimagined.map`](textures/black-hd-reimagined.map) says which pack file replaces which game
+texture. It was made by matching every texture on the disc (about 2000) to the pack by look, then checking the pairs by
+eye: 1161 game textures use 1007 of the pack's 1324 files. The rest are versions of the same picture or have no
+counterpart in this version. Without the map, the game falls back to matching by look while it plays, keeping what it
+learned in `texture_pack_hd/black_recomp_index.bin`.
+
+| Original | HD pack |
+| --- | --- |
+| ![The first room with the original textures](docs/images/textures-original.jpg) | ![The first room with the HD pack](docs/images/textures-hd-pack.jpg) |
+| ![The peeling wall, original](docs/images/textures-original-wall.jpg) | ![The peeling wall, HD pack](docs/images/textures-hd-pack-wall.jpg) |
+
+## Release archives
+
+The starter release includes **BLACK Launcher** built for Windows (`BLACK Launcher.exe`) and for Linux. Open it,
+choose your disc, then **Build the game**: it installs what it needs and builds. After that, **Play** starts the
+game. Nothing else needs to be run.
+
+Linux can generate and compile the complete game without a Windows installation; the launcher runs natively and
+starts the game through Wine/Proton. See [Linux build and setup](docs/linux.md). **Play BLACK.sh** and
+**BLACK Settings.sh** open the launcher; **Install Linux Shortcuts.sh** creates clickable desktop entries.
+The public starter contains host source and the compiled launcher; game executables, generated game code,
 retail files, language banks, settings and saves are excluded.
 
-The launcher recognizes both a portable `bin/black_xbox_recomp.exe` and the existing
-`build-vs2022/Release/black_xbox_recomp.exe` layout. Keep `black-release.json` beside
-the release launchers. Archive/file SHA-256 checksums are included.
+The launcher finds the game at a portable `bin/black_xbox_recomp.exe` or in the
+`build-vs2022/Release/` layout. Keep `black-release.json` beside the launcher. Archive and file SHA-256
+checksums are included.
 
 Startup logos skip on one press of Escape, Enter, Space, left click, or controller
 A / B / Start. During a cutscene, the first press shows **Press again to skip**
@@ -32,9 +92,15 @@ holding a button cannot confirm. The hint also works with native menus disabled
 and stays at the window corner on ultrawide displays. Looping menu backgrounds
 keep playing normally. See the [movie skip tests](tests/movie_skip/README.md).
 
+The added **Crosshair** and **Hit Markers** are independent options in the launcher's
+**Settings > Gameplay** and the in-game **Options > Gameplay Settings** page,
+including while paused. Both default to **Off**. Crosshair Off keeps BLACK's
+original aiming dot; enabling it offers Cross, T-shape and Circle styles. Choices
+are saved in `local/video.ini`; existing saved preferences are preserved.
+
 Ambient occlusion adds contact shading from scene depth with **SSAO Classic,
 HBAO, HBAO+, and GTAO**, each with Low, Medium, High, and Ultra quality. Choose
-the method and quality on the launcher's **Graphics** tab or the in-game
+the method and quality in the launcher's **Settings > Graphics** or the in-game
 **Video Settings > Graphics** page. AO defaults to **Off**, with **High** quality
 selected for when it is enabled. The launcher's labels and help follow the
 selected menu language. The in-game **Video Settings > Graphics** page also
@@ -43,8 +109,13 @@ Brazilian Portuguese.
 
 These are local implementations of the techniques; HBAO+ does not use the
 vendor SDK. The [AO regression tests](tests/ambient_occlusion/README.md) exercise
-the actual shaders, settings, launcher controls, and native camera hook without
-game files.
+the actual shaders, settings and native camera hook without game files.
+
+**Reflections** replaces BLACK's 128 x 128 environment maps (weapons, windows,
+glass) with screen-space reflections of the scene. Choose Original, Low, Medium,
+High (default) or Ultra in the launcher's **Settings > Graphics** or the in-game
+**Video Settings > Graphics** page. Original keeps the game's maps. See
+[docs/reflections.md](docs/reflections.md).
 
 AO reconstructs positions at the sampled depth texel and retries when an early
 draw has no usable depth buffer. Autofocus selects a representative surface in
@@ -108,7 +179,7 @@ they are stored separately from the native XMV video files.
 This repository contains host source and build tooling. **You must supply your
 own original Xbox game files.** Game assets, the XBE, generated game-function
 bodies, recordings, and prebuilt game executables are excluded. Release archives
-may include compiled host launchers that contain no game code.
+include the compiled launcher, which contains no game code.
 
 ## Build
 
@@ -118,10 +189,11 @@ For a build entirely on Linux, follow [the Linux guide](docs/linux.md) and run
 Requirements:
 
 - Windows x64, an AVX2-capable CPU, and a Direct3D 11 graphics device.
-- Visual Studio 2022 with **Desktop development with C++** and a Windows SDK.
-- Git, CMake 3.20 or newer, and Python 3.10 or newer (`py -3`).
-- Rustup with the `x86_64-pc-windows-msvc` toolchain (the pinned DSP build uses Rust 1.98.1).
-- The supported retail original Xbox release of BLACK, extracted into `game/`.
+- Visual Studio 2022's C++ tools (the Build Tools are enough), CMake 3.21 or newer, Python 3.10 or newer and
+  Rustup (the pinned DSP build fetches Rust 1.98.1 itself). The launcher's **Build the game** installs any of
+  these that are missing, with winget. Git is needed only to fetch a clone's submodules.
+- The supported retail original Xbox release of BLACK, extracted into `game/` (the launcher does this from an
+  ISO or a folder).
 
 The supported `game/default.xbe` has SHA-256:
 
@@ -133,23 +205,35 @@ Keep the extracted disc layout intact, including `GlobData.bin`, `levels/`,
 `sound/`, and `videos/`. Other releases and the PlayStation 2 version are not
 supported by this build.
 
-From PowerShell in this repository:
+Clone with submodules, then build from PowerShell in this repository:
 
 ```powershell
+git clone --recursive https://github.com/PauloVx/Black-2006-Recomp.git
 .\scripts\setup.ps1
-.\'BLACK PC Launcher.exe'
+.\'BLACK Launcher.exe'
 ```
 
-Setup fetches pinned XboxRecomp and DSP56300 revisions, applies the included
-runtime patch, creates a local Python environment, generates code from your XBE,
-and builds the game and launcher. These dependencies and outputs stay outside Git.
-Building the generated C code can take several minutes.
+The runtime is a submodule: `third_party/xboxrecomp` is
+[portingpete/xboxrecomp](https://github.com/portingpete/xboxrecomp) on its
+`codex/optional-gameplay-hud` branch, based on [PauloVx/xboxrecomp](https://github.com/PauloVx/xboxrecomp)'s
+`black` branch and carrying this project's runtime changes as ordinary commits.
+`third_party/dsp56300` is the pinned DSP56300 audio core. In an existing clone, run
+`git submodule update --init --recursive` (the build does this when they are missing).
+The build creates a local Python environment, generates code from your XBE, and compiles
+the game. Generated code and build outputs stay outside Git. Building the generated C code
+can take several minutes; later builds only redo what changed.
 
-**BLACK PC Launcher.exe** starts the game directly using your saved preferences.
-Open **BLACK PC Settings.exe** to configure controls and video settings separately,
-or run `BLACK PC Launcher.exe --settings`. The settings window also retains its **Play** button.
-Leave **Skip movies** and **Advance startup menus automatically** unchecked to
-watch the full opening and navigate manually. Local settings live in `local/`
+To change the runtime, work inside `third_party/xboxrecomp` on the branch named in `.gitmodules`,
+commit and push there, then commit the new submodule commit in this repository.
+
+`scripts/setup.ps1` (and **Build BLACK.cmd**) builds **BLACK Launcher.exe**, then runs
+`BLACK Launcher.exe --build`: the same build as the launcher's **Build the game**, in the terminal
+(`-FromScratch` translates the code again). With no disc in `game/` yet, it stops and asks you to choose one
+in the launcher. The launcher itself needs only CMake and Visual Studio; its Vulkan headers are a submodule,
+so no Vulkan SDK is needed.
+
+Leave **Settings > Game > Skip movies** and **Skip startup menus** off to watch the full opening and navigate
+manually. Local settings live in `local/`
 and diagnostic logs in `reports/`. Save-related data uses `save/` as well as
 `game/UDATA/` and `game/TDATA/` through the native partition mapping. Close the
 game and back up all three data directories before moving or removing the
@@ -168,14 +252,21 @@ Start stay with the layout. The change goes into the game's own action map, so
 kept in `local/controls.ini`, which the launcher's key bindings also read and
 write. See the [Controls tests](tests/controls/README.md).
 
-Reached checkpoints are also saved under `save/checkpoints/` for the selected
-saved profile, mission and difficulty. Starting that same mission again resumes
-the checkpoint with its native inventory, objectives and statistics. **Restart
-Mission** discards it; completing a mission retires it. Unsaved profiles retain
-the original session-only checkpoints. Keep `save/` together with your profile
-data when moving the game. See the [checkpoint regressions](tests/checkpoints/README.md).
+**Pause > PHOTO MODE** freezes the mission and gives a free camera with a small panel in the
+game's menu style: move with WASD or the left stick, look with the mouse or right stick, zoom, roll,
+and take photos with F12 or Y. Photos are PNG files in `Pictures\BLACK` at the internal resolution,
+without the HUD, menus or (unless shown) the weapon. The camera stays within a chosen range of where
+photo mode started, so it cannot leave the built level. See [Photo mode](docs/photo-mode.md) and the
+[photo tests](tests/photo/README.md).
 
-The launcher's **Game > Menu language** setting chooses English, Brazilian
+Reached checkpoints are also saved under `save/checkpoints/` for the selected
+saved profile, mission and difficulty. Starting that same mission again resumes
+the checkpoint with its native inventory, objectives and statistics. **Restart
+Mission** discards it; completing a mission retires it. Unsaved profiles retain
+the original session-only checkpoints. Keep `save/` together with your profile
+data when moving the game. See the [checkpoint regressions](tests/checkpoints/README.md).
+
+The launcher's **Settings > Game > Menu language** chooses English, Brazilian
 Portuguese, Spanish, French, German, or Italian for both the launcher and game,
 and is saved in `local/xbox-launcher.json`. Spanish, French, German, and Italian
 are marked as machine-draft translations and still need fluent-speaker review.
@@ -225,6 +316,29 @@ xemu-derived hardware components and nv2a_vsh_cpu. The original Xbox behavior
 was investigated using community hardware documentation, including
 [XboxDevWiki](https://xboxdevwiki.net/) and Cxbx-Reloaded references.
 Development included assistance from Claude Code and OpenAI Codex.
+
+### Forks and submodules
+
+| Submodule | Source | Used for |
+| --- | --- | --- |
+| `third_party/xboxrecomp` | [portingpete/xboxrecomp](https://github.com/portingpete/xboxrecomp) (branch `codex/optional-gameplay-hud`), based on [PauloVx/xboxrecomp](https://github.com/PauloVx/xboxrecomp) and [sp00nznet/xboxrecomp](https://github.com/sp00nznet/xboxrecomp) by sp00nz | The recompilation runtime, with this project's changes as commits |
+| `third_party/dsp56300` | [mborgerson/dsp56300](https://github.com/mborgerson/dsp56300) by Matt Borgerson | The audio DSP core |
+| `launcher/vendor/walnut` | [PauloVx/Walnut](https://github.com/PauloVx/Walnut) (branch `black`), a fork of [StudioCherno/Walnut](https://github.com/StudioCherno/Walnut) by Studio Cherno | The launcher's application framework (Vulkan + Dear ImGui) |
+| `launcher/vendor/imgui` | [TheCherno/imgui](https://github.com/TheCherno/imgui), a fork of [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut | Launcher UI |
+| `launcher/vendor/glfw` | [TheCherno/glfw](https://github.com/TheCherno/glfw), a fork of [GLFW](https://github.com/glfw/glfw) | Launcher window, custom titlebar |
+| `launcher/vendor/glm` | [g-truc/glm](https://github.com/g-truc/glm) | Maths for Walnut |
+| `launcher/vendor/spdlog` | [gabime/spdlog](https://github.com/gabime/spdlog) | Walnut's logging |
+| `launcher/vendor/json` | [nlohmann/json](https://github.com/nlohmann/json) | Launcher settings, logs and translations |
+| `launcher/vendor/vulkan-headers` | [KhronosGroup/Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | Building the launcher without the Vulkan SDK |
+| `launcher/vendor/doctest` | [doctest/doctest](https://github.com/doctest/doctest) | Launcher unit tests |
+
+The launcher's stand-in fonts are [Russo One](https://fonts.google.com/specimen/Russo+One) and
+[Saira Condensed](https://fonts.google.com/specimen/Saira+Condensed) (SIL Open Font License, in `launcher/assets/fonts`).
+The Xbox disc reader follows the format as documented by [extract-xiso](https://github.com/xboxdev/extract-xiso).
+
+The optional HD textures are **BLACK HD Reimagined** by **HD REIMAGINED** (@HDREIMAGINED on Instagram and
+YouTube, @HD.REIMAGINED on TikTok), a pack made for the PS2 version in PCSX2. It is their work and is not part of
+this repository; the screenshots above show it running in this version.
 
 Original project code is MIT licensed. Third-party components and their
 modifications retain their respective licenses; see [LICENSE](LICENSE),
