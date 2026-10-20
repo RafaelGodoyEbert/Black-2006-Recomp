@@ -353,6 +353,10 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameplayOptions() {
              {{"original", tr("OFF")}, {"cross", tr("CROSS")}, {"t", tr("T-SHAPE")}, {"circle", tr("CIRCLE")}}),
         pick(tr("HIT MARKERS"), tr("A mark on the crosshair when a shot of yours kills an enemy."), s.hitmarkers,
              {{"off", tr("OFF")}, {"on", tr("ON")}}),
+        pick(tr("OPTIONAL SECONDARY OBJECTIVES"),
+             tr("Allow mission completion without the required secondary objectives. Primary objectives are still "
+                "required."),
+             s.optional_secondaries, {{"off", tr("OFF")}, {"on", tr("ON")}}),
     };
 }
 
@@ -750,7 +754,8 @@ Page SettingsFlow::page() {
             {tr("DISPLAY"), "", tr("Window, resolution, camera and field of view."), true},
             {tr("GRAPHICS"), "", tr("Anti-aliasing, ambient occlusion, reflections and other effects."), true},
             {tr("CONTROLS"), "", tr("Key bindings, mouse and controller."), true},
-            {tr("GAMEPLAY"), "", tr("Crosshair and hit markers. Both are off by default."), true},
+            {tr("GAMEPLAY"), "",
+             tr("Crosshair, hit markers and optional secondary objectives. All are off by default."), true},
             {tr("GAME"), "", tr("Renderer, game clock, menu language and cheats."), true},
             {tr("DIAGNOSTICS"), "", tr("Logs for finding problems, and reporting one."), true},
             {tr("BACK"), "", "", true},

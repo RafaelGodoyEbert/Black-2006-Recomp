@@ -342,7 +342,8 @@ static void video_fresh(void)
         "RECOMP_RENDER_WIDTH", "RECOMP_RENDER_HEIGHT", "RECOMP_INTERNAL_HEIGHT", "RECOMP_AA", "RECOMP_AF",
         "RECOMP_DOF", "RECOMP_SHARPEN", "RECOMP_SSAO", "RECOMP_AO_METHOD", "RECOMP_AO_QUALITY",
         "RECOMP_BLACK_ASPECT", "RECOMP_BLACK_FOV", "RECOMP_BLACK_MOTION_BLUR",
-        "RECOMP_SCALE_MODE", "RECOMP_PRESENT_FILTER", "RECOMP_VSYNC", "RECOMP_FPS_LIMIT", "RECOMP_VIDEO_INI" };
+        "RECOMP_SCALE_MODE", "RECOMP_PRESENT_FILTER", "RECOMP_VSYNC", "RECOMP_FPS_LIMIT", "RECOMP_VIDEO_INI",
+        "RECOMP_OPTIONAL_SECONDARIES" };
     unsigned i;
     if (!g_video_ini[0]) {
         DWORD n = GetTempPathA(MAX_PATH, g_video_ini);
@@ -542,10 +543,11 @@ static void test_gameplay_pages(void)
         video_fresh(); reset_game(); pc_menu_test_reset(k_black_menu_default); tick(""); tick(page);
         for (i = 0; i < gameplay_row[variant]; i++) press(PCM_ACT_DOWN, page);
         press(PCM_ACT_CONFIRM, page);
-        CHECK(display_has("GAMEPLAY SETTINGS") && display_has("CROSSHAIR") && display_has("HIT MARKERS"),
+        CHECK(display_has("GAMEPLAY SETTINGS") && display_has("CROSSHAIR") && display_has("HIT MARKERS") &&
+              display_has("OPTIONAL SECONDARY OBJECTIVES"),
               "%s reaches the dedicated Gameplay page", page);
         pc_video_get(&s);
-        CHECK(s.crosshair == 0 && s.hitmarkers == 0, "both Gameplay additions default off");
+        CHECK(s.crosshair == 0 && s.hitmarkers == 0 && s.optional_secondaries == 0, "all Gameplay additions default off");
         press(PCM_ACT_RIGHT, page);
         pc_video_get(&s);
         CHECK(s.crosshair == 1 && s.hitmarkers == 0, "crosshair can be enabled independently");
@@ -558,6 +560,15 @@ static void test_gameplay_pages(void)
         press(PCM_ACT_DOWN, page); press(PCM_ACT_LEFT, page);
         pc_video_get(&s);
         CHECK(s.crosshair == 0 && s.hitmarkers == 0, "both additions can be switched off again");
+        press(PCM_ACT_DOWN, page);
+        CHECK(display_has("Primary objectives are still required."), "optional secondaries explain the primary requirement");
+        press(PCM_ACT_RIGHT, page); pc_video_get(&s);
+        CHECK(s.optional_secondaries == 1 && s.crosshair == 0 && s.hitmarkers == 0,
+              "optional secondaries can be enabled independently");
+        pc_video_test_reset(g_video_ini); pc_video_get(&s);
+        CHECK(s.optional_secondaries == 1, "optional secondaries survive reload");
+        press(PCM_ACT_LEFT, page); pc_video_get(&s);
+        CHECK(s.optional_secondaries == 0, "optional secondaries can be disabled live");
         press(PCM_ACT_BACK, page); press(PCM_ACT_DOWN, page); press(PCM_ACT_CONFIRM, page);
         press(PCM_ACT_CONFIRM, page);
         CHECK(display_has("WINDOW MODE") && !display_has("CROSSHAIR") && !display_has("HIT MARKERS"),
@@ -573,7 +584,7 @@ static void test_gameplay_pages(void)
         file_put(path, edited);
         pc_menu_test_load_file(path); tick(""); tick("OptionsMenuXbox");
         press(PCM_ACT_CONFIRM, "OptionsMenuXbox");
-        CHECK(display_has("HIT MARKERS") && file_is(path, edited),
+        CHECK(display_has("OPTIONAL SECONDARY OBJECTIVES") && file_is(path, edited),
               "missing Gameplay page is supplemented without rewriting an edited menu");
         DeleteFileA(path);
         pc_menu_set_default_definition(NULL);
@@ -1141,6 +1152,68 @@ static void test_replaced_default(void)
     pc_menu_set_replaced_defaults(NULL, 0);
 }
 
+/* Preserve the shipping pre-optional-secondaries page verbatim as the migration fixture. */
+static void test_gameplay_default_migration(void)
+{
+    static const char previous_gameplay[] =
+        "[page GameplaySettings]\r\n"
+        "column = 00000000\r\n"
+        "title = \"GAMEPLAY SETTINGS\"\r\n"
+        "logo = 185.5 58\r\n"
+        "title_at = 199 86\r\n"
+        "rails = 47 170\r\n"
+        "list = 218 147 27\r\n"
+        "values = 607\r\n"
+        "item_size = 13.5\r\n"
+        "selector = 401\r\n"
+        "arrows = 4\r\n"
+        "text = 218 310 &VIDEO_HELP | wrap 389 | size 12\r\n"
+        "prompts_at = 218 399 28\r\n"
+        "back = close\r\n"
+        "setting = \"CROSSHAIR\" | crosshair\r\n"
+        "setting = \"HIT MARKERS\" | hitmarkers\r\n"
+        "item = \"BACK\" | close\r\n"
+        "\r\n"
+        "; PC video pages use the same fonts, rails, focus and input as the game's menus.\r\n"
+        "; setting = TEXT | mode/window/internal/aa/af/dof/sharpen/ao_method/ao_quality/reflections/ray_tracing/aspect/fov/scale/filter/vsync/fps/blur/crosshair/hitmarkers\r\n"
+        "; &VIDEO_HELP is the focused setting's explanation. reset_video preserves locked values.\r\n";
+    const char *begin = strstr(k_black_menu_default, "[page GameplaySettings]\r\n");
+    const char *end = begin ? strstr(begin, "[page VideoSettings]\r\n") : NULL;
+    char *previous, *edited, dir[MAX_PATH], path[MAX_PATH];
+    size_t length;
+    int pages, i, registered = 0;
+    CHECK(begin && end, "shipping default contains the Gameplay section");
+    length = strlen(k_black_menu_default) - (size_t)(end - begin) + strlen(previous_gameplay);
+    previous = (char *)malloc(length + 1);
+    edited = (char *)malloc(length + 32);
+    CHECK(previous && edited, "migration fixtures allocate");
+    snprintf(previous, length + 1, "%.*s%s%s", (int)(begin - k_black_menu_default), k_black_menu_default,
+             previous_gameplay, end);
+    CHECK(fnv1a64(previous) == 0x93A312A22FFF08EAull, "fixture is the exact previous shipping default");
+    for (i = 0; i < (int)(sizeof(k_black_menu_replaced) / sizeof(k_black_menu_replaced[0])); i++)
+        if (k_black_menu_replaced[i] == fnv1a64(previous)) registered = 1;
+    CHECK(registered, "previous shipping default has a production migration fingerprint");
+    snprintf(edited, length + 32, "%s; custom player layout\r\n", previous);
+    GetTempPathA(sizeof(dir), dir);
+    snprintf(path, sizeof(path), "%spc-menu-gameplay-migrate-%lu.ini", dir, (unsigned long)GetCurrentProcessId());
+    video_fresh(); reset_game();
+    pc_menu_set_default_definition(k_black_menu_default);
+    pc_menu_set_replaced_defaults(k_black_menu_replaced, (int)(sizeof(k_black_menu_replaced) / sizeof(k_black_menu_replaced[0])));
+    file_put(path, previous);
+    pages = pc_menu_test_load_file(path);
+    CHECK(pages == 23 && file_is(path, k_black_menu_default), "untouched shipping menu upgrades to optional secondaries");
+    tick(""); tick("OptionsMenuXbox");
+    for (i = 0; i < 4; i++) press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    press(PCM_ACT_CONFIRM, "OptionsMenuXbox");
+    CHECK(display_has("OPTIONAL SECONDARY OBJECTIVES"), "migrated menu exposes optional secondaries");
+    file_put(path, edited);
+    pages = pc_menu_test_load_file(path);
+    CHECK(pages == 23 && file_is(path, edited), "edited existing Gameplay page is preserved byte for byte");
+    DeleteFileA(path);
+    pc_menu_set_default_definition(NULL); pc_menu_set_replaced_defaults(NULL, 0);
+    free(previous); free(edited);
+}
+
 static void test_video_file_supplements(void)
 {
     static const char edited[] =
@@ -1669,6 +1742,7 @@ int main(int argc, char **argv)
     test_replaced_default();
     test_video_file_supplements();
     test_gameplay_pages();
+    test_gameplay_default_migration();
     test_native_page_stack();
     test_video_setting_focus_and_layout();
     test_input();
