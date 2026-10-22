@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.5 — 2026-10-22
+
+**First C++ BLACK Launcher release on portingpete/Black-2006-Recomp.** The starter
+includes the Windows and native Linux launchers. Import your supported Xbox disc,
+choose **Build the game**, then **Play**. A new quick start and `START HERE.txt`
+explain the complete flow, distinguish starter archives from source downloads,
+and correct the source-clone instructions. Release packaging now reads `VERSION`
+by default so archive names follow the game and launcher version.
+
 **Optional secondary objectives.** A new toggle in the launcher and in-game
 Gameplay settings removes secondary-objective requirements for mission
 completion. It defaults to Off; primary objectives and earned secondary

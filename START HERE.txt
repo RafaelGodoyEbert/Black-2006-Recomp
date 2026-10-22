@@ -1,0 +1,45 @@
+BLACK 2006 RECOMP - START HERE
+
+WINDOWS
+1. Extract the entire starter ZIP into a writable folder, such as C:\Games\BLACK.
+   Do not run the launcher from inside the ZIP.
+2. Open BLACK Launcher.exe.
+3. Choose Your disc. Select your own original Xbox BLACK ISO/XISO, or the folder
+   containing default.xbe and the rest of the extracted disc. The launcher checks
+   that it is the supported release, then copies the files into game/.
+4. Choose Build the game. Allow the launcher to install missing build tools and
+   follow their installer prompts. The first build needs internet access and can
+   take several minutes. If interrupted, open the launcher and build again.
+5. Choose Play. Open the same launcher next time to play or change settings.
+
+LINUX (x86_64)
+1. Extract the entire starter TAR.GZ, preserving executable permissions.
+2. Read docs/linux.md and install the listed dependencies, including Wine/Proton
+   for playing. The launcher itself runs natively on Linux.
+3. Open BLACK Settings.sh, choose Your disc, then Build the game, then Play.
+   Play BLACK.sh starts the game later. Install Linux Shortcuts.sh is optional.
+
+YOUR GAME FILES
+The download contains the launcher and build sources. You provide your own game
+files; the PC game executable is built on your computer. Keep all disc contents,
+including GlobData.bin, levels/, sound/ and videos/, together. Putting files into
+game/ by hand alone does not generate or compile the game.
+
+Only the supported original Xbox release is accepted. PS2 discs and other Xbox
+revisions are unsupported. Your disc shows the reason if a disc is rejected.
+Do not download GitHub's Source code archives for this launcher-based setup.
+
+HELP AND SAVES
+If building fails, choose Open the log on the build-failure screen. For game
+problems, use Settings > Diagnostics. If reporting a failure, include the actual
+error, your operating system and which step failed; attach the suggested logs
+yourself.
+Problems: https://github.com/portingpete/Black-2006-Recomp/issues
+
+This is an experimental alpha. Full campaign playthroughs remain unverified.
+Ray tracing and split screen are experimental. Crosshair, hit markers and optional
+secondary objectives default to Off. See README.md for known limits and controls.
+
+Before moving or replacing an existing installation, close the game and back up
+save/, game/UDATA/, game/TDATA/ and local/. Keep your existing installation until
+the new one works. Game files, profiles and settings are not included here.

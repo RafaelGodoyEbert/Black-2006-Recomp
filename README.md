@@ -6,6 +6,35 @@ keyboard and mouse controls, XInput controller support, video settings, a PC
 launcher, and native audio output. Movies are enabled by default. The Windows
 build can also run on x86_64 Linux through Wine/Proton; see [Linux setup](docs/linux.md).
 
+## Start here
+
+1. Open the [release downloads](https://github.com/portingpete/Black-2006-Recomp/releases).
+   On Windows, download **BLACK-0.1.0-alpha.5-starter.zip**. On Linux, use
+   **BLACK-0.1.0-alpha.5-starter.tar.gz**. GitHub's **Source code** downloads do not
+   include the compiled launchers or required submodule sources.
+2. Extract the **whole archive** into a writable folder, for example `C:\Games\BLACK`.
+   Open **BLACK Launcher.exe** on Windows, or **BLACK Settings.sh** on Linux.
+3. Choose **Your disc** and select your own supported **original Xbox** BLACK disc
+   image (ISO/XISO) or the folder containing `default.xbe`. Keep the complete disc
+   contents together. The launcher checks the release before copying the files.
+4. Choose **Build the game**. On Windows, the launcher offers to install missing
+   build tools; accept their installer prompts. The first build needs an internet
+   connection, free disk space and several minutes. On Linux, follow the dependency
+   instructions in [Linux setup](docs/linux.md) first.
+5. When the build finishes, choose **Play**. Use this launcher again for settings
+   and future launches.
+
+The download contains the launcher and build sources. You supply the game files;
+the launcher builds the PC game on your computer. Copying files into `game/` alone
+does not build it. The PS2 version and other Xbox revisions are not supported;
+**Your disc** reports an unsupported executable before copying it. You do not need
+to clone this repository or run terminal commands for the Windows starter.
+
+If building fails, choose **Open the log** on the build-failure screen. For game
+problems, use **Settings > Diagnostics**. Include the error and your operating
+system when [reporting a problem](https://github.com/portingpete/Black-2006-Recomp/issues).
+See **START HERE.txt** inside the download for the same steps offline.
+
 ## The launcher
 
 **BLACK Launcher** sets the game up and starts it. It is written in C++ on [Walnut](https://github.com/StudioCherno/Walnut)
@@ -215,7 +244,8 @@ supported by this build.
 Clone with submodules, then build from PowerShell in this repository:
 
 ```powershell
-git clone --recursive https://github.com/PauloVx/Black-2006-Recomp.git
+git clone --recursive https://github.com/portingpete/Black-2006-Recomp.git
+cd Black-2006-Recomp
 .\scripts\setup.ps1
 .\'BLACK Launcher.exe'
 ```

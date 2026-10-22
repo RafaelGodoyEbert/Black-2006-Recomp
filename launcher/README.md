@@ -1,8 +1,8 @@
 # BLACK Launcher
 
 The player-facing launcher, in C++20 on [Walnut](https://github.com/StudioCherno/Walnut) (Vulkan + Dear ImGui).
-It replaced the C# launcher; see [the plan](../docs/plans/new-launcher.md) for what is still to come (building the
-game from the launcher).
+It replaced the C# launcher and handles disc import, building the game, settings and play.
+See [the plan](../docs/plans/new-launcher.md) for its design history.
 
 It sets up the disc: an ISO (XISO or a full Redump-style dump) or a folder of extracted files, chosen with the
 system's file dialog, dropped onto the window or given on the command line. The launcher reads Xbox disc images

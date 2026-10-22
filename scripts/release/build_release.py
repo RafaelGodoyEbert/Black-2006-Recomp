@@ -19,7 +19,7 @@ import zipfile
 
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)?")
 ROOT_FILES = {'.gitattributes', '.gitignore', 'CMakeLists.txt', 'LICENSE', 'NOTICE',
-              'README.md', 'CHANGELOG.md', 'VERSION', 'Build BLACK.cmd', 'Play BLACK.sh',
+              'README.md', 'CHANGELOG.md', 'VERSION', 'START HERE.txt', 'Build BLACK.cmd', 'Play BLACK.sh',
               'BLACK Settings.sh', 'Install Linux Shortcuts.sh', 'Build BLACK.sh'}
 SOURCE_DIRS = {'cmake', 'docs', 'LICENSES', 'localization', 'scripts', 'src', 'textures',
                'subtitles', 'tests', 'translations'}
@@ -167,7 +167,7 @@ def build(root, launchers, output, version, allow_dirty=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parents[2]
-    parser.add_argument('--version', required=True)
+    parser.add_argument('--version', default=(root / 'VERSION').read_text(encoding='utf-8').strip())
     parser.add_argument('--launchers', type=Path, default=root / 'build-release-launchers')
     parser.add_argument('--output', type=Path, default=root / 'releases')
     parser.add_argument('--allow-dirty', action='store_true', help='Local validation only; manifest records this')
