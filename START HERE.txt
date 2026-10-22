@@ -23,6 +23,20 @@ LINUX (x86_64)
 3. Open BLACK Settings.sh, choose Your disc, then Build the game, then Play.
    Play BLACK.sh starts the game later. Install Linux Shortcuts.sh is optional.
 
+OPTIONAL SETTINGS AND STEAM
+After building, close Steam, choose Add to Steam in the launcher, select your
+account and confirm. Restart Steam. Keep BLACK in the same installation folder.
+Existing Steam shortcuts are backed up before the new shortcut is written.
+
+Settings > Graphics > LOD distance extends detailed meshes and prop visibility.
+1X is original; higher choices can increase rendering work.
+Settings > Gameplay has bullet damage, enemy health and headshot instant kill.
+Defaults preserve original combat. Restart the mission after changing health.
+
+For BLACK HD Reimagined, use Settings > Game > Open HD pack folder, extract your
+separately downloaded pack there, then choose Textures: HD PACK. Subfolders work.
+The pack is not included. README.md has the download link and credits.
+
 YOUR GAME FILES
 The download contains the launcher and build sources. You provide your own game
 files; the PC game executable is built on your computer. Keep all disc contents,

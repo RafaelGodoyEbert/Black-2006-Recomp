@@ -36,7 +36,7 @@ public:
 
 private:
     enum class Screen { Main, Disc, Flow };
-    enum class Action { Play, Settings, Saves, Disc, Build, OpenFolder, Quit };
+    enum class Action { Play, Settings, Saves, Disc, Build, Steam, OpenFolder, Quit };
 
     void refresh();
     void loadArt();

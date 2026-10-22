@@ -21,6 +21,16 @@ command that installs them.
 (`Play BLACK.sh`) use it. `BLACK Launcher --build [--from-scratch]` builds the game in the terminal;
 `scripts/setup.ps1` uses it.
 
+**Add to Steam** discovers local accounts and creates a `--play` shortcut after
+confirmation. Steam must be closed; existing shortcut bytes are preserved and
+backed up before an atomic replacement. Malformed files and duplicate entries
+are handled without rewriting the user's existing records.
+
+Graphics settings include native LOD distance. Gameplay includes player bullet
+damage, enemy spawn health and instant-kill headshots, shared with the in-game
+menus through `local/video.ini`. HD texture setup can create/open the fixed
+`texture_pack_hd` folder and reports a missing folder before launching.
+
 ## Building
 
 Starter archives include the compiled launcher and its license notices. To build

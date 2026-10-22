@@ -28,6 +28,8 @@ enum class PathStyle { Native, Wine };
 
 /// The game executable, once the build and the disc files are both in place.
 [[nodiscard]] Result<std::filesystem::path> checkReadyToPlay(const ProjectLayout& project);
+/// A selected HD pack must have its own folder; choosing Original never requires a pack.
+[[nodiscard]] std::optional<std::string> texturePackProblem(const ProjectLayout& project, const Settings& settings);
 
 /// One run of the game. Its output goes to reports/launcher-<time>-<id>/session.log, diagnostics to their own
 /// capped logs beside it, then the kernel log and exit.json when it ends.

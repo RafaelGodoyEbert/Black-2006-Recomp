@@ -22,6 +22,7 @@ add_executable(black_launcher
     NativeDialogs.cpp
     SaveFlow.cpp
     SettingsFlow.cpp
+    SteamFlow.cpp
     TextEntry.cpp
     Translations.cpp
     Theme.cpp

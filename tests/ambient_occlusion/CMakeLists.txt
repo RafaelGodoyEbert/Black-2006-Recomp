@@ -67,6 +67,7 @@ add_custom_command(OUTPUT "${native_menu_extracted}"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_menu_default.py"
         --source "${CMAKE_CURRENT_SOURCE_DIR}/../../src/black_native_menu.inc" --output "${native_menu_extracted}"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../src/black_native_menu.inc" "${CMAKE_CURRENT_SOURCE_DIR}/extract_menu_default.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/menu-before-tuning.json"
     COMMENT "Extracting the production native menu definition" VERBATIM)
 set_source_files_properties("${native_menu_extracted}" PROPERTIES GENERATED TRUE HEADER_FILE_ONLY TRUE)
 target_sources(ao-menu-test PRIVATE "${native_menu_extracted}")

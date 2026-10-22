@@ -56,6 +56,25 @@ TEST_CASE("Playing needs the build and the disc") {
     CHECK(checkReadyToPlay(project).error().message.find("disc") != std::string::npos);
 }
 
+TEST_CASE("A selected HD texture pack needs its folder and never silently falls back") {
+    const black::tests::TempFolder folder;
+    const ProjectLayout project(folder.path());
+    Settings settings;
+    CHECK_FALSE(texturePackProblem(project, settings));
+    settings.textures = "hd-pack";
+    const auto missing = texturePackProblem(project, settings);
+    REQUIRE(missing.has_value());
+    CHECK(missing->find("texture_pack_hd") != std::string::npos);
+    CHECK(missing->find("Original") != std::string::npos);
+    CHECK_FALSE(std::filesystem::exists(project.root() / "texture_pack_hd"));
+    std::filesystem::create_directory(project.root() / "texture_pack_hd");
+    CHECK_FALSE(texturePackProblem(project, settings));
+    const auto env = gameEnvironment(project, settings, PathStyle::Native);
+    CHECK(env.contains("RECOMP_TEXTURE_PACK"));
+    settings.textures = "original";
+    CHECK_FALSE(gameEnvironment(project, settings, PathStyle::Native).contains("RECOMP_TEXTURE_PACK"));
+}
+
 TEST_CASE("A capped trace log keeps the first lines and says how many it dropped") {
     const black::tests::TempFolder folder;
     {

@@ -421,6 +421,8 @@ def title_hooks(name, body):
     body = test_weapon_hooks(name, body)
     body = checkpoint_hooks(name, body)
     body = secondary_objective_hooks(name, body)
+    body = lod_hooks(name, body)
+    body = gameplay_tuning_hooks(name, body)
     body = scope_mask_boundary(name, body)
     return body
 
@@ -478,6 +480,111 @@ def secondary_objective_hooks(name, body):
     if body.count(native) != native_count or segment.count(native) != 1 or hooked in body:
         raise ValueError("Native secondary-objective comparison changed: " + name)
     return body[:start] + segment.replace(native, hooked) + body[stop:]
+
+
+def lod_hooks(name, body):
+    """Extend native mesh LOD and prop culling without changing real distance or masks."""
+    # Modes: 0 linear distance, 1 squared distance, 2 projected size ratio.
+    sites = {
+        "sub_001C8360": [
+            ("001C8417", "xmm0.f[0] = xmm0.f[0] * xmm1.f[0]; /* mulss */",
+             "xmm0.f[0] = black_lod_value(xmm0.f[0] * xmm1.f[0], 0u); /* native mesh LOD metric */")],
+        "sub_001C55A0": [
+            ("001C5636", "xmm1.f[0] = xmm1.f[0] * xmm0.f[0]; /* mulss */",
+             "xmm1.f[0] = black_lod_value(xmm1.f[0] * xmm0.f[0], 0u); /* native character LOD metric */")],
+        "sub_001CA5D0": [
+            ("001CA64F", "_fca = xmm1.f[0]; _fcb = xmm2.f[0]; /* comiss */",
+             "_fca = black_lod_value(xmm1.f[0], 1u); _fcb = xmm2.f[0]; /* native squared-range cull */"),
+            ("001CA66F", "_fca = xmm0.f[0]; _fcb = MEMF(0x295C98); /* comiss */",
+             "_fca = black_lod_value(xmm0.f[0], 0u); _fcb = MEMF(0x295C98); /* native 120-unit cull */"),
+            ("001CA687", "_fca = xmm1.f[0]; _fcb = xmm0.f[0]; /* comiss */",
+             "_fca = xmm1.f[0]; _fcb = black_lod_value(xmm0.f[0], 2u); /* native projected-size cull */"),
+            ("001CA76C", "_fca = xmm0.f[0]; _fcb = MEMF(l_ebx + 0xC0); /* comiss */",
+             "_fca = xmm0.f[0]; _fcb = black_lod_value(MEMF(l_ebx + 0xC0), 0u); /* native material-range cull */")],
+        "sub_001CA910": [
+            ("001CA93A", "_fca = xmm0.f[0]; _fcb = MEMF(0x295D38); /* comiss */",
+             "_fca = black_lod_value(xmm0.f[0], 0u); _fcb = MEMF(0x295D38); /* native 40-unit cull */")],
+        "sub_001D0F80": [
+            ("001D0FA9", "_fca = xmm0.f[0]; _fcb = MEMF(0x295CEC); /* comiss */",
+             "_fca = black_lod_value(xmm0.f[0], 0u); _fcb = MEMF(0x295CEC); /* native 100-unit cull */"),
+            ("001D0FC1", "_fca = xmm1.f[0]; _fcb = xmm0.f[0]; /* comiss */",
+             "_fca = xmm1.f[0]; _fcb = black_lod_value(xmm0.f[0], 2u); /* native projected-size cull */"),
+            ("001D12B3", "_fca = xmm0.f[0]; _fcb = MEMF(l_ebx + 0xC0); /* comiss */",
+             "_fca = xmm0.f[0]; _fcb = black_lod_value(MEMF(l_ebx + 0xC0), 0u); /* native material-range cull */")],
+        "sub_001CB380": [
+            ("001CB457", "_fca = xmm0.f[0]; _fcb = MEMF(l_ebx + 0xC0); /* comiss */",
+             "_fca = xmm0.f[0]; _fcb = black_lod_value(MEMF(l_ebx + 0xC0), 0u); /* native material-range cull */")],
+    }
+    if name not in sites:
+        return body
+    for label, native, hooked in sites[name]:
+        marker = f"loc_{label}: ;\n"
+        if body.count(marker) != 1:
+            raise ValueError("Native geometry LOD boundary changed: " + name)
+        start = body.index(marker)
+        following = re.search(r"^loc_", body[start + len(marker):], re.M)
+        stop = start + len(marker) + following.start() if following else len(body)
+        segment = body[start:stop]
+        if body.count(hooked) == 1 and body.count(native) == 0 and hooked in segment:
+            continue
+        if body.count(native) != 1 or segment.count(native) != 1 or hooked in body:
+            raise ValueError("Native geometry LOD instruction changed: " + name)
+        body = body[:start] + segment.replace(native, hooked) + body[stop:]
+    if name in ("sub_001C8360", "sub_001C55A0"):
+        entry = "loc_" + name[4:] + ": ;\n"
+        object_expression = "l_edx" if name == "sub_001C8360" else "MEM32(l_esp + 4u)"
+        capture = f"    const uint32_t black_lod_object = {object_expression};\n"
+        if body.count(entry) != 1:
+            raise ValueError("Native geometry LOD entry changed: " + name)
+        if capture not in body:
+            body = replace_once(body, entry, entry + capture)
+        elif body.count(capture) != 1 or entry + capture not in body:
+            raise ValueError("Native geometry LOD object capture changed: " + name)
+        trace = f"black_lod_trace(0x{name[4:]}u, black_lod_object); "
+        returns = 3 if name == "sub_001C8360" else 5
+        if len(re.findall(r"\breturn;", body)) != returns:
+            raise ValueError("Native geometry LOD return boundary changed: " + name)
+        if body.count(trace) == 0:
+            body = re.sub(r"\breturn;", trace + "return;", body)
+        elif body.count(trace) != returns or body.count(trace + "return;") != returns:
+            raise ValueError("Native geometry LOD trace boundary changed: " + name)
+    return body
+
+
+def gameplay_tuning_hooks(name, body):
+    """Tune native enemy health/player bullets without replacing death handling."""
+    sites = {
+        "sub_00013E00": [
+            ("00013E00", "MEMF(l_eax + 0x2F0) = xmm0.f[0]; /* movss */",
+             "MEMF(l_eax + 0x2F0) = black_tuning_spawn_health(l_eax, xmm0.f[0]); /* native enemy spawn health */")],
+        "sub_001E74B0_gen": [
+            ("001E7535", "xmm0.f[0] = xmm0.f[0] + MEMF(ebp + 0x10); /* addss */",
+             "xmm0.f[0] = xmm0.f[0] + black_tuning_bullet_damage(l_ebx, MEM32(ebp + 0x1C), MEMF(ebp + 0x10)); /* native armor damage delta */"),
+            ("001E77F9", "SET_LO8(l_eax, MEM8(l_ebx + 0x3B0));",
+             "xmm0.f[0] = black_tuning_bullet_damage(l_ebx, MEM32(ebp + 0x1C), xmm0.f[0]); /* native health damage */\n    SET_LO8(l_eax, MEM8(l_ebx + 0x3B0));"),
+            ("001E7841", "l_edx = MEM32(l_esp + 0x24);",
+             "MEM8(l_esp + 0x19) = (uint8_t)black_tuning_headshot(l_ebx, MEM32(ebp + 0x1C), MEM32(l_esp + 0x24), MEM8(l_esp + 0x19)); /* native headshot kill flag */\n    l_edx = MEM32(l_esp + 0x24);")],
+    }
+    if name not in sites:
+        return body
+    for label, native, hooked in sites[name]:
+        marker = f"loc_{label}: ;\n"
+        if body.count(marker) != 1:
+            raise ValueError("Native combat boundary changed: " + name)
+        start = body.index(marker)
+        following = re.search(r"^loc_", body[start + len(marker):], re.M)
+        stop = start + len(marker) + following.start() if following else len(body)
+        segment = body[start:stop]
+        if segment.count(hooked) == 1:
+            if body.count(hooked) != 1:
+                raise ValueError("Native combat hook duplicated: " + name)
+            continue
+        # Some instructions occur elsewhere in this function. Require exactly
+        # one match in the verified native block and no partial/moved hook.
+        if segment.count(native) != 1 or hooked in body:
+            raise ValueError("Native combat instruction changed: " + name)
+        body = body[:start] + segment.replace(native, hooked) + body[stop:]
+    return body
 
 
 def checkpoint_hooks(name, body):
@@ -883,6 +990,10 @@ def main():
     declarations += "\nextern void black_checkpoint_event(uint32_t, uint32_t);\n"
     declarations += "\nextern int black_secondary_requirement_met(int);\n"
     declarations += "\nextern uint32_t black_audio_queue_completion(uint32_t);\n"
+    declarations += "extern float black_lod_value(float, unsigned);\nextern void black_lod_trace(uint32_t, uint32_t);\n"
+    declarations += "extern float black_tuning_spawn_health(uint32_t, float);\n"
+    declarations += "extern float black_tuning_bullet_damage(uint32_t, uint32_t, float);\n"
+    declarations += "extern unsigned black_tuning_headshot(uint32_t, uint32_t, unsigned, unsigned);\n"
     for chunk in chunks:
         text = chunk.read_text(encoding="utf-8")
         text = rewrite_functions(text, promote_body)

@@ -342,12 +342,24 @@ Result<fs::path> checkReadyToPlay(const ProjectLayout& project) {
     return *executable;
 }
 
+std::optional<std::string> texturePackProblem(const ProjectLayout& project, const Settings& settings) {
+    std::error_code error;
+    if (settings.textures == "hd-pack" && !fs::is_directory(project.root() / "texture_pack_hd", error)) {
+        return "The HD texture pack folder is missing. Add the pack to texture_pack_hd, or choose Original in "
+               "Settings > Game > Textures.";
+    }
+    return std::nullopt;
+}
+
 Result<std::unique_ptr<GameSession>> GameSession::start(const ProjectLayout& project, const Settings& settings) {
     const auto executable = checkReadyToPlay(project);
     if (!executable) {
         return executable.error();
     }
     if (const auto problem = settingsProblem(settings)) {
+        return Error{*problem};
+    }
+    if (const auto problem = texturePackProblem(project, settings)) {
         return Error{*problem};
     }
     std::unique_ptr<GameSession> session(new GameSession());
