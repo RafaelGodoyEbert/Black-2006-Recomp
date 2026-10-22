@@ -368,7 +368,7 @@ TEST_CASE("Steam discovers multiple accounts and safely resolves installation al
     const auto found = findSteamAccounts({root, root, folder.path() / "missing"});
     REQUIRE(found.ok());
     REQUIRE(found.value().size() == 2);
-    CHECK(found.value()[0].configDirectory == root / "userdata" / "123" / "config");
+    CHECK(fs::equivalent(found.value()[0].configDirectory, root / "userdata" / "123" / "config"));
     CHECK(found.value()[0].displayName == "Test Name (123)");
     CHECK(found.value()[1].displayName == "Steam account 456");
     folder.write("Steam/config/loginusers.vdf", "\"users\" { malformed");
