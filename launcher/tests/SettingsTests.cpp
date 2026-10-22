@@ -20,9 +20,11 @@ TEST_CASE("Gameplay additions default off and preserve explicit independent choi
     const Settings defaults = defaultSettings();
     CHECK(defaults.crosshair == "original");
     CHECK(defaults.hitmarkers == "off");
+    CHECK(defaults.optional_secondaries == "off");
     const Settings legacy = settingsFromJson(R"({"Schema":3,"MenuLanguage":"en-US"})");
     CHECK(legacy.crosshair == "original");
     CHECK(legacy.hitmarkers == "off");
+    CHECK(legacy.optional_secondaries == "off");
     const Settings invalid = settingsFromJson(R"({"Crosshair":"invalid","HitMarkers":"invalid"})");
     CHECK(invalid.crosshair == "original");
     CHECK(invalid.hitmarkers == "off");
@@ -40,6 +42,28 @@ TEST_CASE("Gameplay additions default off and preserve explicit independent choi
             CHECK(iniRead.hitmarkers == markers);
         }
     }
+}
+
+TEST_CASE("Optional secondaries validate, round-trip and preserve legacy settings") {
+    for (const std::string_view bad :
+         {R"({"OptionalSecondaries":"invalid"})", R"({"OptionalSecondaries":true})", R"({"OptionalSecondaries":1})"}) {
+        CHECK(settingsFromJson(bad).optional_secondaries == "off");
+    }
+    Settings legacy;
+    CHECK(applyVideoIni(legacy, "[video]\nvsync=0\n") == 1);
+    CHECK(legacy.optional_secondaries == "off");
+    for (const std::string_view choice : choices::kOnOff) {
+        Settings wanted = defaultSettings();
+        wanted.optional_secondaries = choice;
+        CHECK(settingsFromJson(settingsJson(wanted)).optional_secondaries == choice);
+        Settings ini;
+        CHECK(applyVideoIni(ini, videoIni(wanted)) > 0);
+        CHECK(ini.optional_secondaries == choice);
+        CHECK(applyVideoIni(ini, "optional_secondaries=invalid\noptional_secondaries=1\n") == 0);
+        CHECK(ini.optional_secondaries == choice);
+    }
+    CHECK(applyVideoIni(legacy, "OPTIONAL_SECONDARIES = On\n") == 1);
+    CHECK(legacy.optional_secondaries == "on");
 }
 
 TEST_CASE("Render size follows the camera aspect, and SSAA doubles it") {
@@ -93,7 +117,7 @@ TEST_CASE("video.ini round-trips and skips what the game would skip") {
     settings.vsync = false;
     settings.actionBlur = "off";
     Settings read;
-    CHECK(applyVideoIni(read, videoIni(settings)) == 22);
+    CHECK(applyVideoIni(read, videoIni(settings)) == 23);
     CHECK(videoIni(read) == videoIni(settings));
     CHECK(read.actionBlur == "off");
 
@@ -137,14 +161,17 @@ TEST_CASE("Saving writes all three files, and video.ini and controls.ini win whe
 
     Settings settings = defaultSettings();
     settings.anisotropy = 4;
+    settings.optional_secondaries = "on";
     settings.bindings = {{"RELOAD", "T"}};
     REQUIRE(saveSettings(*project, settings).ok());
     CHECK(fileText(folder.path() / "local/controls.ini").find("[controller]\nlayout=2") != std::string::npos);
     CHECK(loadSettings(*project).anisotropy == 4);
+    CHECK(loadSettings(*project).optional_secondaries == "on");
 
-    folder.write("local/video.ini", "[video]\naf=2\n");
+    folder.write("local/video.ini", "[video]\naf=2\noptional_secondaries=off\n");
     folder.write("local/controls.ini", "[keyboard]\nRELOAD=Y\n");
     const Settings loaded = loadSettings(*project);
     CHECK(loaded.anisotropy == 2);
+    CHECK(loaded.optional_secondaries == "off");
     CHECK(loaded.bindings == bindings::Overrides{{"RELOAD", "Y"}});
 }

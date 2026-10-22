@@ -420,8 +420,64 @@ def title_hooks(name, body):
     body = unsigned_division_hooks(name, body)
     body = test_weapon_hooks(name, body)
     body = checkpoint_hooks(name, body)
+    body = secondary_objective_hooks(name, body)
     body = scope_mask_boundary(name, body)
     return body
+
+
+def secondary_objective_hooks(name, body):
+    """Override only final secondary gates, after native primary/count checks."""
+    sites = {
+        "sub_001F5B90": ("001F5C5C", "SET_LO8(l_edx, (CMP_GE(_fas, _fbs)) ? 1 : 0);"),
+        "sub_001FC5D0": ("001FC88C", "if (CMP_GE(_fas, _fbs)) goto loc_001FC916;"),
+        "sub_0011F120": ("0011FB17", "if (CMP_GE(_fas, _fbs)) goto loc_0011FBA6;"),
+    }
+    if name not in sites:
+        return body
+    label, native = sites[name]
+    if name == "sub_0011F120":
+        # This page also displays historical mission records. Capture its grade
+        # before native UI construction reuses eax; only a successful result
+        # may bypass the title comparison. A failed/primary-incomplete result
+        # must never acquire a success title merely by opening this page.
+        for marker, insertion in (
+                ("loc_0011F120: ;\n", "    int black_secondary_result_complete = 0, black_secondary_result_historical = 0;\n"),
+                ("loc_0011F274: ;\n", "    black_secondary_result_historical = 1;\n"),
+                ("loc_0011F2DC: ;\n", "    black_secondary_result_complete = (l_eax == 2u);\n")):
+            if body.count(marker) != 1:
+                raise ValueError("Native mission-result grade boundary changed")
+            if insertion not in body:
+                body = replace_once(body, marker, marker + insertion)
+            elif body.count(insertion) != 1 or marker + insertion not in body:
+                raise ValueError("Native mission-result grade capture changed")
+    marker = f"loc_{label}: ;\n"
+    if body.count(marker) != 1:
+        raise ValueError("Native secondary-objective gate changed: " + name)
+    start = body.index(marker)
+    following = re.search(r"^loc_", body[start + len(marker):], re.M)
+    stop = start + len(marker) + following.start() if following else len(body)
+    segment = body[start:stop]
+    hooked = native.replace("CMP_GE(_fas, _fbs)",
+                            "black_secondary_requirement_met(CMP_GE(_fas, _fbs))")
+    if name == "sub_001FC5D0":
+        # Save callbacks can reach this routine too. Permit a new unlock only
+        # when the live statistics confirm primary objectives are complete.
+        hooked = native.replace("CMP_GE(_fas, _fbs)",
+                                "(CMP_GE(_fas, _fbs) || (black_secondary_requirement_met(0) && "
+                                "MEM8(MEM32(MEM32(0x2D12CC)) + 0x14)))")
+    if name == "sub_0011F120":
+        hooked = native.replace("CMP_GE(_fas, _fbs)",
+                                "(CMP_GE(_fas, _fbs) || (black_secondary_result_complete && "
+                                "(black_secondary_result_historical || black_secondary_requirement_met(0))))")
+    # The result/unlock functions also have an identical branch for an invalid
+    # mission index. Only the comparison at the selected label is a secondary gate.
+    native_count = 1 if name == "sub_001F5B90" else 2
+    if (body.count(hooked) == 1 and body.count(native) == native_count - 1
+            and hooked in segment):
+        return body
+    if body.count(native) != native_count or segment.count(native) != 1 or hooked in body:
+        raise ValueError("Native secondary-objective comparison changed: " + name)
+    return body[:start] + segment.replace(native, hooked) + body[stop:]
 
 
 def checkpoint_hooks(name, body):
@@ -825,6 +881,7 @@ def main():
     declarations += "extern int black_infinite_ammo_flag(int);\n"
     declarations += "\nextern void black_test_stream_unit(uint32_t);\n"
     declarations += "\nextern void black_checkpoint_event(uint32_t, uint32_t);\n"
+    declarations += "\nextern int black_secondary_requirement_met(int);\n"
     declarations += "\nextern uint32_t black_audio_queue_completion(uint32_t);\n"
     for chunk in chunks:
         text = chunk.read_text(encoding="utf-8")

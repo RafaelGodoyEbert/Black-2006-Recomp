@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Optional secondary objectives.** A new toggle in the launcher and in-game
+Gameplay settings removes secondary-objective requirements for mission
+completion. It defaults to Off; primary objectives and earned secondary
+objective progress are preserved.
+
 **Ray-traced bounce light on walls and floors.** With ray tracing on, the level takes on the colour of what is
 around it, followed over 4 bounces, and gets contact shading where surfaces meet, finer than the baked lightmaps;
 the brightness stays the bake's. Characters and props get their bounce colour over 4 bounces too, twice as strong as

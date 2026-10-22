@@ -98,6 +98,13 @@ including while paused. Both default to **Off**. Crosshair Off keeps BLACK's
 original aiming dot; enabling it offers Cross, T-shape and Circle styles. Choices
 are saved in `local/video.ini`; existing saved preferences are preserved.
 
+**Optional Secondary Objectives** is also available on both Gameplay settings
+pages and defaults to **Off**. Turn it on to finish missions without meeting
+the difficulty's secondary-objective requirement. Primary objectives still
+apply, and secondary objectives continue to track what you actually earned.
+The choice is saved as `optional_secondaries=on|off` in `local/video.ini` and
+can be changed while paused.
+
 Ambient occlusion adds contact shading from scene depth with **SSAO Classic,
 HBAO, HBAO+, and GTAO**, each with Low, Medium, High, and Ultra quality. Choose
 the method and quality in the launcher's **Settings > Graphics** or the in-game
@@ -215,7 +222,7 @@ git clone --recursive https://github.com/PauloVx/Black-2006-Recomp.git
 
 The runtime is a submodule: `third_party/xboxrecomp` is
 [portingpete/xboxrecomp](https://github.com/portingpete/xboxrecomp) on its
-`codex/optional-gameplay-hud` branch, based on [PauloVx/xboxrecomp](https://github.com/PauloVx/xboxrecomp)'s
+`codex/optional-secondary-objectives` branch, based on [PauloVx/xboxrecomp](https://github.com/PauloVx/xboxrecomp)'s
 `black` branch and carrying this project's runtime changes as ordinary commits.
 `third_party/dsp56300` is the pinned DSP56300 audio core. In an existing clone, run
 `git submodule update --init --recursive` (the build does this when they are missing).
@@ -321,7 +328,7 @@ Development included assistance from Claude Code and OpenAI Codex.
 
 | Submodule | Source | Used for |
 | --- | --- | --- |
-| `third_party/xboxrecomp` | [portingpete/xboxrecomp](https://github.com/portingpete/xboxrecomp) (branch `codex/optional-gameplay-hud`), based on [PauloVx/xboxrecomp](https://github.com/PauloVx/xboxrecomp) and [sp00nznet/xboxrecomp](https://github.com/sp00nznet/xboxrecomp) by sp00nz | The recompilation runtime, with this project's changes as commits |
+| `third_party/xboxrecomp` | [portingpete/xboxrecomp](https://github.com/portingpete/xboxrecomp) (branch `codex/optional-secondary-objectives`), based on [PauloVx/xboxrecomp](https://github.com/PauloVx/xboxrecomp) and [sp00nznet/xboxrecomp](https://github.com/sp00nznet/xboxrecomp) by sp00nz | The recompilation runtime, with this project's changes as commits |
 | `third_party/dsp56300` | [mborgerson/dsp56300](https://github.com/mborgerson/dsp56300) by Matt Borgerson | The audio DSP core |
 | `launcher/vendor/walnut` | [PauloVx/Walnut](https://github.com/PauloVx/Walnut) (branch `black`), a fork of [StudioCherno/Walnut](https://github.com/StudioCherno/Walnut) by Studio Cherno | The launcher's application framework (Vulkan + Dear ImGui) |
 | `launcher/vendor/imgui` | [TheCherno/imgui](https://github.com/TheCherno/imgui), a fork of [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut | Launcher UI |

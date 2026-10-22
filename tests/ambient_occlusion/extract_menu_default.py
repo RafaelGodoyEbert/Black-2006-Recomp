@@ -11,4 +11,8 @@ text = args.source.read_text(encoding='utf-8')
 match = re.search(r'black_menu_definition\[\]\s*=\s*((?:"(?:[^"\\]|\\.)*"\s*)+);', text)
 if not match:
     raise SystemExit('could not find the production native menu definition')
-args.output.write_text('static const char k_black_menu_default[] =\n' + match[1] + ';\n', encoding='utf-8')
+replaced = re.search(r'black_menu_replaced\[\]\s*=\s*(\{[^}]+\});', text)
+if not replaced:
+    raise SystemExit('could not find the production native menu migration fingerprints')
+args.output.write_text('static const char k_black_menu_default[] =\n' + match[1] + ';\n'
+                      + 'static const uint64_t k_black_menu_replaced[] = ' + replaced[1] + ';\n', encoding='utf-8')

@@ -447,5 +447,7 @@
   "ACTION BLUR": "DESENFOQUE DE ACCIÓN",
   "Original keeps BLACK's own blur while reloading and aiming. Off removes it; motion blur and depth of field are separate settings.": "Original mantiene el desenfoque propio de BLACK al recargar y apuntar. Desactivado lo elimina; el desenfoque de movimiento y la profundidad de campo son ajustes aparte.",
   "GAMEPLAY": "JUGABILIDAD",
-  "Crosshair and hit markers. Both are off by default.": "Punto de mira y marcadores de impacto. Ambos desactivados por defecto."
+  "OPTIONAL SECONDARY OBJECTIVES": "OBJETIVOS SECUNDARIOS OPCIONALES",
+  "Allow mission completion without the required secondary objectives. Primary objectives are still required.": "Permite completar la misión sin los objetivos secundarios exigidos. Los objetivos principales siguen siendo obligatorios.",
+  "Crosshair, hit markers and optional secondary objectives. All are off by default.": "Punto de mira, marcadores de impacto y objetivos secundarios opcionales. Todos desactivados por defecto."
 }

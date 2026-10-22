@@ -34,6 +34,7 @@
 #include "pc_menu.h"
 #include "fb_present.h"
 #include "black_menu_prompt_language.h"
+#include "black_secondary_objectives.inc"
 
 /* ── ICALL trace ring buffer ───────────────────────────────── */
 

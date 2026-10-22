@@ -238,6 +238,7 @@ std::string videoIni(const Settings& s) {
     line("ray_tracing", s.rayTracing);
     line("crosshair", s.crosshair);
     line("hitmarkers", s.hitmarkers);
+    line("optional_secondaries", s.optional_secondaries);
     return text;
 }
 
@@ -330,6 +331,8 @@ int applyVideoIni(Settings& s, std::string_view text) {
             pick(choices::kCrosshairs, s.crosshair);
         } else if (key == "hitmarkers") {
             pick(choices::kOnOff, s.hitmarkers);
+        } else if (key == "optional_secondaries") {
+            pick(choices::kOnOff, s.optional_secondaries);
         } else if (key == "ssao") {  // the old single setting: method SSAO at a quality, or off
             if (value == "off") {
                 s.aoMethod = "off";
@@ -346,7 +349,7 @@ int applyVideoIni(Settings& s, std::string_view text) {
 
 std::string settingsJson(const Settings& s) {
     Json json;
-    json["SettingsVersion"] = 11;
+    json["SettingsVersion"] = 12;
     json["GpuRenderer"] = s.gpuRenderer;
     json["Smooth60"] = s.smooth60;
     json["SmoothHz"] = s.smoothHz;
@@ -374,6 +377,7 @@ std::string settingsJson(const Settings& s) {
     json["RayTracing"] = s.rayTracing;
     json["Crosshair"] = s.crosshair;
     json["HitMarkers"] = s.hitmarkers;
+    json["OptionalSecondaries"] = s.optional_secondaries;
     json["WindowMode"] = s.windowMode;
     json["ScaleMode"] = s.scaleMode;
     json["PresentFilter"] = s.presentFilter;
@@ -434,6 +438,7 @@ Settings settingsFromJson(std::string_view text) {
     readField(json, "RayTracing", s.rayTracing, among(choices::kOnOff));
     readField(json, "Crosshair", s.crosshair, among(choices::kCrosshairs));
     readField(json, "HitMarkers", s.hitmarkers, among(choices::kOnOff));
+    readField(json, "OptionalSecondaries", s.optional_secondaries, among(choices::kOnOff));
     readField(json, "WindowMode", s.windowMode, among(choices::kWindowModes));
     readField(json, "ScaleMode", s.scaleMode, among(choices::kScaleModes));
     readField(json, "PresentFilter", s.presentFilter, among(choices::kFilters));

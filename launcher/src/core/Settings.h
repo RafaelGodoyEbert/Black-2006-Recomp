@@ -57,6 +57,7 @@ struct Settings {
     std::string rayTracing = "off";  // experimental; the game checks the GPU
     std::string crosshair = "original";
     std::string hitmarkers = "off";
+    std::string optional_secondaries = "off";  // mission completion still requires primary objectives
 
     // Input
     std::string inputMode = "auto";

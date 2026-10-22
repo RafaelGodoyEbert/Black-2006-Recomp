@@ -360,20 +360,21 @@ static const char black_menu_definition[] =
 "logo = 185.5 58\r\n"
 "title_at = 199 86\r\n"
 "rails = 47 170\r\n"
-"list = 218 147 27\r\n"
+"list = 199 147 27\r\n"
 "values = 607\r\n"
 "item_size = 13.5\r\n"
-"selector = 401\r\n"
+"selector = 420\r\n"
 "arrows = 4\r\n"
-"text = 218 310 &VIDEO_HELP | wrap 389 | size 12\r\n"
-"prompts_at = 218 399 28\r\n"
+"text = 199 310 &VIDEO_HELP | wrap 408 | size 12\r\n"
+"prompts_at = 199 399 28\r\n"
 "back = close\r\n"
 "setting = \"CROSSHAIR\" | crosshair\r\n"
 "setting = \"HIT MARKERS\" | hitmarkers\r\n"
+"setting = \"OPTIONAL SECONDARY OBJECTIVES\" | optional_secondaries\r\n"
 "item = \"BACK\" | close\r\n"
 "\r\n"
 "; PC video pages use the same fonts, rails, focus and input as the game's menus.\r\n"
-"; setting = TEXT | mode/window/internal/aa/af/dof/sharpen/ao_method/ao_quality/reflections/ray_tracing/aspect/fov/scale/filter/vsync/fps/blur/crosshair/hitmarkers\r\n"
+"; setting = TEXT | mode/window/internal/aa/af/dof/sharpen/ao_method/ao_quality/reflections/ray_tracing/aspect/fov/scale/filter/vsync/fps/blur/crosshair/hitmarkers/optional_secondaries\r\n"
 "; &VIDEO_HELP is the focused setting's explanation. reset_video preserves locked values.\r\n"
 "[page VideoSettings]\r\n"
 "column = 00000000\r\n"
@@ -566,7 +567,7 @@ static const char black_menu_definition[] =
 static const uint64_t black_menu_replaced[] = { 0xD8419D900AB2FEA6ull, 0xBBE0D874943DB641ull, 0x9F7652C358180DC6ull,
                                                 0xFF74A7E07CF4C7F0ull, 0x33977C1E8AC020F3ull, 0xB86AB9AC7D0F4406ull,
                                                 0xDC483F969B68C28Aull, 0x9EE07629CB313D32ull, 0xC6D3B76BDD8FC724ull,
-                                                0xCAB7BCC76B5F689Aull, 0x53E79C5FCD83D531ull, 0x8895E21EE19C8166ull, 0x5984EE9CC11281D1ull, 0x80C09B1E7F97E61Full };
+                                                0xCAB7BCC76B5F689Aull, 0x53E79C5FCD83D531ull, 0x8895E21EE19C8166ull, 0x5984EE9CC11281D1ull, 0x80C09B1E7F97E61Full, 0x93A312A22FFF08EAull, 0x3846873DAB993010ull };
 
 /* ---- guest helpers --------------------------------------------------------------------------------------- */
 

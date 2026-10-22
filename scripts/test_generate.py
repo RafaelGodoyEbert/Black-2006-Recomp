@@ -404,6 +404,53 @@ def test_checkpoint_boundaries():
     assert generate.checkpoint_hooks("other", "unchanged") == "unchanged"
 
 
+def test_secondary_objective_boundaries():
+    for name, label, native in (
+            ("sub_001F5B90", "001F5C5C", "SET_LO8(l_edx, (CMP_GE(_fas, _fbs)) ? 1 : 0);"),
+            ("sub_001FC5D0", "001FC88C", "if (CMP_GE(_fas, _fbs)) goto loc_001FC916;"),
+            ("sub_0011F120", "0011FB17", "if (CMP_GE(_fas, _fbs)) goto loc_0011FBA6;")):
+        before = "    primary_check();\n    count_actual_objectives();\n"
+        if name == "sub_0011F120":
+            before = ("loc_0011F120: ;\nloc_0011F274: ;\nloc_0011F2DC: ;\n" + before
+                      + "    " + native + "\n")
+        elif name == "sub_001FC5D0":
+            before += "    " + native + "\n"
+        after = "\nloc_FFFFFFFF: ;\n    save_actual_statistics();\n"
+        body = before + f"loc_{label}: ;\n    {native}" + after
+        hooked = generate.secondary_objective_hooks(name, body)
+        if name == "sub_0011F120":
+            assert "black_secondary_result_complete = (l_eax == 2u);" in hooked
+            assert "black_secondary_result_historical = 1;" in hooked
+            assert "black_secondary_result_complete && (black_secondary_result_historical || black_secondary_requirement_met(0))" in hooked
+            for marker in ("loc_0011F120: ;\n", "loc_0011F274: ;\n", "loc_0011F2DC: ;\n"):
+                for changed in (body.replace(marker, ""), body + marker):
+                    try:
+                        generate.secondary_objective_hooks(name, changed)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError("Changed mission-result grade boundary must fail closed")
+        elif name == "sub_001FC5D0":
+            assert "black_secondary_requirement_met(0) && MEM8(MEM32(MEM32(0x2D12CC)) + 0x14)" in hooked
+            assert hooked.startswith(before)
+        else:
+            expected = native.replace("CMP_GE(_fas, _fbs)",
+                                      "black_secondary_requirement_met(CMP_GE(_fas, _fbs))")
+            assert hooked == before + f"loc_{label}: ;\n    {expected}" + after
+        assert generate.secondary_objective_hooks(name, hooked) == hooked
+        for invalid in (body + body, body.replace(native, "changed();"),
+                        body.replace(f"loc_{label}", "loc_00000000"),
+                        body.replace(native, "") + native,
+                        hooked + "\n" + native, hooked + hooked):
+            try:
+                generate.secondary_objective_hooks(name, invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Changed secondary-objective gate must fail closed: " + name)
+    assert generate.secondary_objective_hooks("unrelated", "unchanged") == "unchanged"
+
+
 def test_controls_wrapper_keeps_generated_body_as_gen():
     repo = Path(__file__).resolve().parents[1]
     scanner_path = repo / "third_party/xboxrecomp/tools/recomp/manual_scan.py"
@@ -424,6 +471,7 @@ def test_controls_wrapper_keeps_generated_body_as_gen():
 
 
 if __name__ == "__main__":
+    test_secondary_objective_boundaries()
     test_checkpoint_boundaries()
     test_weapon_runtime_consumers()
     test_audio_completion_enqueue_boundary()
@@ -440,4 +488,4 @@ if __name__ == "__main__":
     test_native_lab_streaming_boundary()
     test_scope_mask_native_boundary()
     test_controls_wrapper_keeps_generated_body_as_gen()
-    print("16 checks passed")
+    print("17 checks passed")
