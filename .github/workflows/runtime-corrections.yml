@@ -45,6 +45,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'APU mixdown regression failed' }
       - name: Test generated-source audit and indirect-call feedback
         run: python scripts/test_generate.py
+      - name: Build and run LOD and combat tuning regressions
+        shell: pwsh
+        run: |
+          foreach ($suite in @('lod_distance', 'gameplay_tuning')) {
+            cmake -S "tests/$suite" -B "build-$suite" -G "Visual Studio 17 2022" -A x64
+            if ($LASTEXITCODE -ne 0) { throw "$suite configure failed" }
+            foreach ($configuration in @('Release', 'Debug')) {
+              cmake --build "build-$suite" --config $configuration
+              if ($LASTEXITCODE -ne 0) { throw "$suite build failed" }
+              ctest --test-dir "build-$suite" -C $configuration --output-on-failure
+              if ($LASTEXITCODE -ne 0) { throw "$suite regression failed" }
+            }
+          }
       - name: Test audio bank parsing and extraction boundaries
         run: python -m unittest discover -s scripts -p test_extract_audio.py -v
       - name: Build and run weapon diagnostic guards

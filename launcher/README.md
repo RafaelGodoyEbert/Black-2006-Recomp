@@ -1,8 +1,8 @@
 # BLACK Launcher
 
 The player-facing launcher, in C++20 on [Walnut](https://github.com/StudioCherno/Walnut) (Vulkan + Dear ImGui).
-It replaced the C# launcher; see [the plan](../docs/plans/new-launcher.md) for what is still to come (building the
-game from the launcher).
+It replaced the C# launcher and handles disc import, building the game, settings and play.
+See [the plan](../docs/plans/new-launcher.md) for its design history.
 
 It sets up the disc: an ISO (XISO or a full Redump-style dump) or a folder of extracted files, chosen with the
 system's file dialog, dropped onto the window or given on the command line. The launcher reads Xbox disc images
@@ -21,7 +21,21 @@ command that installs them.
 (`Play BLACK.sh`) use it. `BLACK Launcher --build [--from-scratch]` builds the game in the terminal;
 `scripts/setup.ps1` uses it.
 
+**Add to Steam** discovers local accounts and creates a `--play` shortcut after
+confirmation. Steam must be closed; existing shortcut bytes are preserved and
+backed up before an atomic replacement. Malformed files and duplicate entries
+are handled without rewriting the user's existing records.
+
+Graphics settings include native LOD distance. Gameplay includes player bullet
+damage, enemy spawn health and instant-kill headshots, shared with the in-game
+menus through `local/video.ini`. HD texture setup can create/open the fixed
+`texture_pack_hd` folder and reports a missing folder before launching.
+
 ## Building
+
+Starter archives include the compiled launcher and its license notices. To build
+or change it, clone the [repository](https://github.com/portingpete/Black-2006-Recomp)
+with `--recursive`; the starter does not include the full launcher sources.
 
 Needs CMake 3.21+ and a C++20 compiler; nothing else. The Vulkan headers are a submodule
 (`vendor/vulkan-headers`), and the launcher links against the Vulkan loader that graphics drivers install: on

@@ -1,11 +1,12 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.0-alpha.4',
+    [string]$Version,
     [string]$OutputDirectory,
     [switch]$AllowDirty
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (-not $Version) { $Version = (Get-Content -LiteralPath (Join-Path $projectRoot 'VERSION') -Raw).Trim() }
 $launchers = Join-Path $projectRoot 'build-release-launchers'
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $projectRoot 'releases' }
 & (Join-Path $PSScriptRoot 'build-launcher.ps1') -OutputDirectory $launchers

@@ -343,7 +343,8 @@ static void video_fresh(void)
         "RECOMP_DOF", "RECOMP_SHARPEN", "RECOMP_SSAO", "RECOMP_AO_METHOD", "RECOMP_AO_QUALITY",
         "RECOMP_BLACK_ASPECT", "RECOMP_BLACK_FOV", "RECOMP_BLACK_MOTION_BLUR",
         "RECOMP_SCALE_MODE", "RECOMP_PRESENT_FILTER", "RECOMP_VSYNC", "RECOMP_FPS_LIMIT", "RECOMP_VIDEO_INI",
-        "RECOMP_OPTIONAL_SECONDARIES" };
+        "RECOMP_OPTIONAL_SECONDARIES", "RECOMP_LOD_DISTANCE", "RECOMP_BULLET_DAMAGE", "RECOMP_ENEMY_HEALTH",
+        "RECOMP_HEADSHOT_INSTAKILL" };
     unsigned i;
     if (!g_video_ini[0]) {
         DWORD n = GetTempPathA(MAX_PATH, g_video_ini);
@@ -1177,17 +1178,17 @@ static void test_gameplay_default_migration(void)
         "; PC video pages use the same fonts, rails, focus and input as the game's menus.\r\n"
         "; setting = TEXT | mode/window/internal/aa/af/dof/sharpen/ao_method/ao_quality/reflections/ray_tracing/aspect/fov/scale/filter/vsync/fps/blur/crosshair/hitmarkers\r\n"
         "; &VIDEO_HELP is the focused setting's explanation. reset_video preserves locked values.\r\n";
-    const char *begin = strstr(k_black_menu_default, "[page GameplaySettings]\r\n");
+    const char *begin = strstr(k_black_menu_before_tuning, "[page GameplaySettings]\r\n");
     const char *end = begin ? strstr(begin, "[page VideoSettings]\r\n") : NULL;
     char *previous, *edited, dir[MAX_PATH], path[MAX_PATH];
     size_t length;
     int pages, i, registered = 0;
     CHECK(begin && end, "shipping default contains the Gameplay section");
-    length = strlen(k_black_menu_default) - (size_t)(end - begin) + strlen(previous_gameplay);
+    length = strlen(k_black_menu_before_tuning) - (size_t)(end - begin) + strlen(previous_gameplay);
     previous = (char *)malloc(length + 1);
     edited = (char *)malloc(length + 32);
     CHECK(previous && edited, "migration fixtures allocate");
-    snprintf(previous, length + 1, "%.*s%s%s", (int)(begin - k_black_menu_default), k_black_menu_default,
+    snprintf(previous, length + 1, "%.*s%s%s", (int)(begin - k_black_menu_before_tuning), k_black_menu_before_tuning,
              previous_gameplay, end);
     CHECK(fnv1a64(previous) == 0x93A312A22FFF08EAull, "fixture is the exact previous shipping default");
     for (i = 0; i < (int)(sizeof(k_black_menu_replaced) / sizeof(k_black_menu_replaced[0])); i++)
@@ -1212,6 +1213,47 @@ static void test_gameplay_default_migration(void)
     DeleteFileA(path);
     pc_menu_set_default_definition(NULL); pc_menu_set_replaced_defaults(NULL, 0);
     free(previous); free(edited);
+}
+
+static void test_tuning_default_migration(void)
+{
+    char dir[MAX_PATH], path[MAX_PATH];
+    PcVideoSettings settings;
+    int i, registered = 0;
+    CHECK(fnv1a64(k_black_menu_before_tuning) == 0x3CD00D866F39BFB4ull,
+          "tuning migration fixture is the exact prior shipping default");
+    for (i = 0; i < (int)(sizeof(k_black_menu_replaced) / sizeof(k_black_menu_replaced[0])); i++)
+        if (k_black_menu_replaced[i] == fnv1a64(k_black_menu_before_tuning)) registered = 1;
+    CHECK(registered, "prior shipping menu has a production tuning migration fingerprint");
+    GetTempPathA(sizeof(dir), dir);
+    snprintf(path, sizeof(path), "%spc-menu-tuning-migrate-%lu.ini", dir, (unsigned long)GetCurrentProcessId());
+    video_fresh(); reset_game();
+    pc_menu_set_default_definition(k_black_menu_default);
+    pc_menu_set_replaced_defaults(k_black_menu_replaced, (int)(sizeof(k_black_menu_replaced) / sizeof(k_black_menu_replaced[0])));
+    file_put(path, k_black_menu_before_tuning);
+    CHECK(pc_menu_test_load_file(path) == 23 && file_is(path, k_black_menu_default),
+          "untouched prior menu upgrades to tuning controls");
+    tick(""); tick("OptionsMenuXbox");
+    for (i = 0; i < 4; i++) press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    press(PCM_ACT_CONFIRM, "OptionsMenuXbox");
+    CHECK(display_has("BULLET DAMAGE") && display_has("ENEMY HEALTH") && display_has("INSTANT-KILL HEADSHOTS"),
+          "migrated Gameplay page exposes combat controls");
+    for (i = 0; i < 3; i++) press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    press(PCM_ACT_RIGHT, "OptionsMenuXbox"); pc_video_get(&settings);
+    CHECK(settings.bullet_damage == 150, "native Gameplay changes player bullet damage");
+    press(PCM_ACT_DOWN, "OptionsMenuXbox"); press(PCM_ACT_LEFT, "OptionsMenuXbox"); pc_video_get(&settings);
+    CHECK(settings.enemy_health == 75, "native Gameplay changes enemy health");
+    press(PCM_ACT_DOWN, "OptionsMenuXbox"); press(PCM_ACT_RIGHT, "OptionsMenuXbox"); pc_video_get(&settings);
+    CHECK(settings.headshot_instakill == 1, "native Gameplay changes confirmed-headshot behavior");
+    press(PCM_ACT_BACK, "OptionsMenuXbox"); press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    press(PCM_ACT_CONFIRM, "OptionsMenuXbox"); press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    press(PCM_ACT_CONFIRM, "OptionsMenuXbox");
+    CHECK(display_has("LOD DISTANCE"), "native Graphics exposes geometry LOD distance");
+    for (i = 0; i < 10; i++) press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    press(PCM_ACT_RIGHT, "OptionsMenuXbox"); pc_video_get(&settings);
+    CHECK(settings.lod_distance == 200, "native Graphics changes geometry LOD distance");
+    DeleteFileA(path);
+    pc_menu_set_default_definition(NULL); pc_menu_set_replaced_defaults(NULL, 0);
 }
 
 static void test_video_file_supplements(void)
@@ -1743,6 +1785,7 @@ int main(int argc, char **argv)
     test_video_file_supplements();
     test_gameplay_pages();
     test_gameplay_default_migration();
+    test_tuning_default_migration();
     test_native_page_stack();
     test_video_setting_focus_and_layout();
     test_input();

@@ -715,6 +715,9 @@ static int black_pc_ram_span(uint32_t address, uint32_t bytes)
         xbox_GetPhysicalMemoryBase() != NULL;
 }
 
+#include "black_lod.inc"
+#include "black_gameplay_tuning.inc"
+
 void sub_0015A960(void)
 {
     const uint32_t renderer = g_edi, index = g_eax;

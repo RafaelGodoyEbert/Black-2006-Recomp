@@ -31,7 +31,10 @@ The generator requires a user's own matching retail original Xbox files.
 Generated game-function bodies, extracted assets, saves and game binaries
 are excluded from this repository.
 
-Starter releases include compiled MIT-licensed host launchers and their source.
+Starter releases include compiled host launchers and their original font and
+library license notices under launcher/. Launcher source and pinned dependencies
+are available in the corresponding Git tag at
+https://github.com/portingpete/Black-2006-Recomp.
 They contain no generated game-function bodies or retail files. The game is built
 locally from the user's matching retail files. Wine, Proton and DXVK are external
 runtime dependencies, not bundled or relicensed by this project.

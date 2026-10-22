@@ -474,6 +474,8 @@ static int same_settings(const PcVideoSettings *a, const PcVideoSettings *b)
            a->aa == b->aa && a->af == b->af && a->dof == b->dof && a->sharpen == b->sharpen &&
            a->ao_method == b->ao_method && a->ao_quality == b->ao_quality && a->reflections == b->reflections &&
            a->ray_tracing == b->ray_tracing && a->crosshair == b->crosshair && a->hitmarkers == b->hitmarkers &&
+           a->lod_distance == b->lod_distance && a->bullet_damage == b->bullet_damage &&
+           a->enemy_health == b->enemy_health && a->headshot_instakill == b->headshot_instakill &&
            a->optional_secondaries == b->optional_secondaries && a->split_screen == b->split_screen && a->render_override_w == b->render_override_w && a->render_override_h == b->render_override_h;
 }
 
@@ -484,7 +486,8 @@ static void clear_env(void)
         "RECOMP_SCALE_MODE", "RECOMP_PRESENT_FILTER", "RECOMP_VSYNC", "RECOMP_FPS_LIMIT", "RECOMP_BLACK_ASPECT",
         "RECOMP_BLACK_FOV", "RECOMP_BLACK_MOTION_BLUR", "RECOMP_INTERNAL_HEIGHT", "RECOMP_VIDEO_INI",
         "RECOMP_AA", "RECOMP_AF", "RECOMP_DOF", "RECOMP_SHARPEN", "RECOMP_SSAO", "RECOMP_AO_METHOD", "RECOMP_AO_QUALITY",
-        "RECOMP_REFLECTIONS", "RECOMP_KGPU_RT", "RECOMP_CROSSHAIR", "RECOMP_HITMARKERS", "RECOMP_SPLITSCREEN", "RECOMP_OPTIONAL_SECONDARIES"
+        "RECOMP_REFLECTIONS", "RECOMP_KGPU_RT", "RECOMP_CROSSHAIR", "RECOMP_HITMARKERS", "RECOMP_SPLITSCREEN", "RECOMP_OPTIONAL_SECONDARIES",
+        "RECOMP_LOD_DISTANCE", "RECOMP_BULLET_DAMAGE", "RECOMP_ENEMY_HEALTH", "RECOMP_HEADSHOT_INSTAKILL"
     };
     unsigned i;
     for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) _putenv_s(names[i], "");
@@ -571,7 +574,7 @@ static void test_model(void)
     CHECK(strstr(text, "crosshair=t\n") && strstr(text, "hitmarkers=off\n") && strstr(text, "split_screen=on\n"));
     CHECK(strstr(text, "motion_blur=off\n") && strstr(text, "action_blur=off\n"));
     CHECK(strstr(text, "optional_secondaries=on\n"));
-    CHECK(pc_video_parse(text, &t) == 24);
+    CHECK(pc_video_parse(text, &t) == 28);
     CHECK(same_settings(&s, &t));
     pc_video_defaults(&t);
     CHECK(pc_video_parse("[video]\r\n; comment\r\ninternal_height=999\r\nwindow_width=1600\r\nbogus=1\r\nfov=500\r\nfov=72.5\r\n"
@@ -596,7 +599,7 @@ static void test_optional_secondaries(void)
         s.optional_secondaries = choice;
         CHECK(pc_video_format(&s, text, sizeof(text)) > 0);
         pc_video_defaults(&t);
-        CHECK(pc_video_parse(text, &t) == 24 && t.optional_secondaries == choice);
+        CHECK(pc_video_parse(text, &t) == 28 && t.optional_secondaries == choice);
         CHECK(pc_video_parse("optional_secondaries=invalid\noptional_secondaries=1\n", &t) == 0);
         CHECK(t.optional_secondaries == choice);
     }
@@ -641,6 +644,81 @@ static void test_optional_secondaries(void)
     fresh();
 }
 
+static void test_tuning_settings(void)
+{
+    struct Choice {
+        const unsigned *values;
+        unsigned count;
+        size_t offset;
+        const char *key, *env;
+        int row;
+        unsigned lock;
+    } cases[] = {
+        { pc_video_lod_distances, pc_video_lod_distance_count, offsetof(PcVideoSettings, lod_distance),
+          "lod_distance", "RECOMP_LOD_DISTANCE", PCV_ROW_LOD_DISTANCE, PCV_LOCK_LOD_DISTANCE },
+        { pc_video_bullet_damages, pc_video_bullet_damage_count, offsetof(PcVideoSettings, bullet_damage),
+          "bullet_damage", "RECOMP_BULLET_DAMAGE", PCV_ROW_BULLET_DAMAGE, PCV_LOCK_BULLET_DAMAGE },
+        { pc_video_enemy_healths, pc_video_enemy_health_count, offsetof(PcVideoSettings, enemy_health),
+          "enemy_health", "RECOMP_ENEMY_HEALTH", PCV_ROW_ENEMY_HEALTH, PCV_LOCK_ENEMY_HEALTH }
+    };
+    PcVideoSettings s, t;
+    unsigned i, c;
+    char text[1024], line[128], value[32];
+    fresh(); pc_video_get(&s);
+    CHECK(s.lod_distance == 100 && s.bullet_damage == 100 && s.enemy_health == 100 && !s.headshot_instakill);
+    for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+        const struct Choice *choice = &cases[c];
+        for (i = 0; i < choice->count; i++) {
+            pc_video_defaults(&s);
+            snprintf(line, sizeof(line), "%s=%u\n", choice->key, choice->values[i]);
+            CHECK(pc_video_parse(line, &s) == 1);
+            CHECK(*(unsigned *)((char *)&s + choice->offset) == choice->values[i]);
+            CHECK(pc_video_format(&s, text, sizeof(text)) < sizeof(text));
+            pc_video_defaults(&t);
+            CHECK(pc_video_parse(text, &t) == 28 && same_settings(&s, &t));
+            CHECK(pc_video_set(&s));
+            CHECK(pc_video_menu_row_value(choice->row, value, sizeof(value)) > 0 && strchr(value, 'X'));
+            CHECK(pc_video_menu_row_change(choice->row, 1)); pc_video_get(&t);
+            CHECK(*(unsigned *)((char *)&t + choice->offset) == choice->values[(i + 1) % choice->count]);
+            CHECK(pc_video_menu_row_change(choice->row, -1)); pc_video_get(&t);
+            CHECK(*(unsigned *)((char *)&t + choice->offset) == choice->values[i]);
+        }
+        pc_video_defaults(&s);
+        snprintf(line, sizeof(line), "%s=1\n%s=1.5\n", choice->key, choice->key);
+        CHECK(pc_video_parse(line, &s) == 0 && *(unsigned *)((char *)&s + choice->offset) == 100);
+        *(unsigned *)((char *)&s + choice->offset) = 1;
+        CHECK(!pc_video_set(&s));
+
+        fresh(); pc_video_get(&s);
+        *(unsigned *)((char *)&s + choice->offset) = choice->values[0]; CHECK(pc_video_set(&s));
+        snprintf(value, sizeof(value), "%u", choice->values[choice->count - 1]);
+        _putenv_s(choice->env, value); pc_video_test_reset(ini_path); pc_video_get(&s);
+        CHECK(*(unsigned *)((char *)&s + choice->offset) == choice->values[choice->count - 1]);
+        CHECK((pc_video_locked() & choice->lock) && pc_video_menu_row_locked(choice->row));
+        CHECK(!pc_video_menu_row_change(choice->row, 1));
+        pc_video_menu_reset_settings(); pc_video_get(&t);
+        CHECK(*(unsigned *)((char *)&t + choice->offset) == choice->values[choice->count - 1]);
+        clear_env(); pc_video_test_reset(ini_path); pc_video_get(&t);
+        CHECK(*(unsigned *)((char *)&t + choice->offset) == choice->values[0]);
+        _putenv_s(choice->env, "invalid"); pc_video_test_reset(ini_path); pc_video_get(&t);
+        CHECK(*(unsigned *)((char *)&t + choice->offset) == 100 && pc_video_menu_row_locked(choice->row));
+        fresh();
+    }
+    pc_video_get(&s);
+    CHECK(pc_video_parse("HEADSHOT_INSTAKILL=On\n", &s) == 1 && s.headshot_instakill == 1);
+    CHECK(pc_video_parse("headshot_instakill=invalid\nheadshot_instakill=1\n", &s) == 0 && s.headshot_instakill == 1);
+    CHECK(pc_video_set(&s));
+    CHECK(pc_video_menu_row_change(PCV_ROW_HEADSHOT_INSTAKILL, -1)); pc_video_get(&s);
+    CHECK(!s.headshot_instakill);
+    s.headshot_instakill = 2; CHECK(!pc_video_set(&s));
+    _putenv_s("RECOMP_HEADSHOT_INSTAKILL", "on"); pc_video_test_reset(ini_path); pc_video_get(&s);
+    CHECK(s.headshot_instakill == 1 && pc_video_menu_row_locked(PCV_ROW_HEADSHOT_INSTAKILL));
+    CHECK(!pc_video_menu_row_change(PCV_ROW_HEADSHOT_INSTAKILL, -1));
+    pc_video_menu_reset_settings(); pc_video_get(&s); CHECK(s.headshot_instakill == 1);
+    clear_env(); pc_video_test_reset(ini_path); pc_video_get(&s); CHECK(!s.headshot_instakill);
+    fresh();
+}
+
 static void test_ambient_occlusion(void)
 {
     static const char *const methods[] = { "off", "ssao", "hbao", "hbao_plus", "gtao" };
@@ -659,7 +737,7 @@ static void test_ambient_occlusion(void)
             CHECK(s.ao_method == method && s.ao_quality == quality);
             CHECK(pc_video_format(&s, text, sizeof(text)) < sizeof(text));
             pc_video_defaults(&t);
-            CHECK(pc_video_parse(text, &t) == 24 && same_settings(&s, &t));
+            CHECK(pc_video_parse(text, &t) == 28 && same_settings(&s, &t));
         }
     }
     CHECK(pc_video_parse("ao_method=GTAO\nao_quality=ULTRA\n", &s) == 2);
@@ -1240,6 +1318,8 @@ static void test_native_row_services(void)
     _putenv_s("RECOMP_BLACK_MOTION_BLUR", "off"); _putenv_s("RECOMP_KGPU_RT", "1");
     _putenv_s("RECOMP_CROSSHAIR", "circle"); _putenv_s("RECOMP_HITMARKERS", "0");
     _putenv_s("RECOMP_OPTIONAL_SECONDARIES", "on");
+    _putenv_s("RECOMP_LOD_DISTANCE", "1000"); _putenv_s("RECOMP_BULLET_DAMAGE", "600");
+    _putenv_s("RECOMP_ENEMY_HEALTH", "25"); _putenv_s("RECOMP_HEADSHOT_INSTAKILL", "on");
     pc_video_test_reset(ini_path); pc_video_get(&before);
     generation = pc_video_generation();
     for (row = 0; row < PCV_ROW_RESET; row++) {
@@ -1317,6 +1397,7 @@ int main(void)
     snprintf(ini_path + n, 32, "pc_video_test_%lu.ini", (unsigned long)GetCurrentProcessId());
     test_model();
     test_optional_secondaries();
+    test_tuning_settings();
     test_sustained_fire_survives_gameplay_gap();
     test_look_survives_camera_gap();
     test_fire_ack_generation_guards();

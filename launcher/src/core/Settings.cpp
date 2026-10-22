@@ -239,6 +239,10 @@ std::string videoIni(const Settings& s) {
     line("crosshair", s.crosshair);
     line("hitmarkers", s.hitmarkers);
     line("optional_secondaries", s.optional_secondaries);
+    line("lod_distance", std::to_string(s.lod_distance));
+    line("bullet_damage", std::to_string(s.bullet_damage));
+    line("enemy_health", std::to_string(s.enemy_health));
+    line("headshot_instakill", s.headshot_instakill);
     return text;
 }
 
@@ -333,6 +337,23 @@ int applyVideoIni(Settings& s, std::string_view text) {
             pick(choices::kOnOff, s.hitmarkers);
         } else if (key == "optional_secondaries") {
             pick(choices::kOnOff, s.optional_secondaries);
+        } else if (key == "lod_distance") {
+            if (number && contains(choices::kLodDistances, *number)) {
+                s.lod_distance = static_cast<int>(*number);
+                ++applied;
+            }
+        } else if (key == "bullet_damage") {
+            if (number && contains(choices::kBulletDamages, *number)) {
+                s.bullet_damage = static_cast<int>(*number);
+                ++applied;
+            }
+        } else if (key == "enemy_health") {
+            if (number && contains(choices::kEnemyHealths, *number)) {
+                s.enemy_health = static_cast<int>(*number);
+                ++applied;
+            }
+        } else if (key == "headshot_instakill") {
+            pick(choices::kOnOff, s.headshot_instakill);
         } else if (key == "ssao") {  // the old single setting: method SSAO at a quality, or off
             if (value == "off") {
                 s.aoMethod = "off";
@@ -349,7 +370,7 @@ int applyVideoIni(Settings& s, std::string_view text) {
 
 std::string settingsJson(const Settings& s) {
     Json json;
-    json["SettingsVersion"] = 12;
+    json["SettingsVersion"] = 13;
     json["GpuRenderer"] = s.gpuRenderer;
     json["Smooth60"] = s.smooth60;
     json["SmoothHz"] = s.smoothHz;
@@ -378,6 +399,10 @@ std::string settingsJson(const Settings& s) {
     json["Crosshair"] = s.crosshair;
     json["HitMarkers"] = s.hitmarkers;
     json["OptionalSecondaries"] = s.optional_secondaries;
+    json["LodDistance"] = s.lod_distance;
+    json["BulletDamage"] = s.bullet_damage;
+    json["EnemyHealth"] = s.enemy_health;
+    json["HeadshotInstakill"] = s.headshot_instakill;
     json["WindowMode"] = s.windowMode;
     json["ScaleMode"] = s.scaleMode;
     json["PresentFilter"] = s.presentFilter;
@@ -439,6 +464,10 @@ Settings settingsFromJson(std::string_view text) {
     readField(json, "Crosshair", s.crosshair, among(choices::kCrosshairs));
     readField(json, "HitMarkers", s.hitmarkers, among(choices::kOnOff));
     readField(json, "OptionalSecondaries", s.optional_secondaries, among(choices::kOnOff));
+    readField(json, "LodDistance", s.lod_distance, [](long long v) { return contains(choices::kLodDistances, v); });
+    readField(json, "BulletDamage", s.bullet_damage, [](long long v) { return contains(choices::kBulletDamages, v); });
+    readField(json, "EnemyHealth", s.enemy_health, [](long long v) { return contains(choices::kEnemyHealths, v); });
+    readField(json, "HeadshotInstakill", s.headshot_instakill, among(choices::kOnOff));
     readField(json, "WindowMode", s.windowMode, among(choices::kWindowModes));
     readField(json, "ScaleMode", s.scaleMode, among(choices::kScaleModes));
     readField(json, "PresentFilter", s.presentFilter, among(choices::kFilters));

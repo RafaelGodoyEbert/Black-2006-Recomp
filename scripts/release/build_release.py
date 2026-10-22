@@ -19,12 +19,36 @@ import zipfile
 
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)?")
 ROOT_FILES = {'.gitattributes', '.gitignore', 'CMakeLists.txt', 'LICENSE', 'NOTICE',
-              'README.md', 'CHANGELOG.md', 'VERSION', 'Build BLACK.cmd', 'Play BLACK.sh',
+              'README.md', 'CHANGELOG.md', 'VERSION', 'START HERE.txt', 'Build BLACK.cmd', 'Play BLACK.sh',
               'BLACK Settings.sh', 'Install Linux Shortcuts.sh', 'Build BLACK.sh'}
 SOURCE_DIRS = {'cmake', 'docs', 'LICENSES', 'localization', 'scripts', 'src', 'textures',
                'subtitles', 'tests', 'translations'}
 # Submodules ship in the archive (it has no .git to fetch them): their tracked sources, without test binaries.
 SUBMODULES = ('third_party/xboxrecomp', 'third_party/dsp56300')
+# The compiled launcher embeds fonts and statically links these libraries. Carry
+# their original notices even though the starter does not need launcher sources.
+# stb's notices live in its headers; keep those complete and unmodified.
+LAUNCHER_FILES = (
+    'launcher/README.md',
+    'launcher/assets/fonts/OFL-RussoOne.txt',
+    'launcher/assets/fonts/OFL-SairaCondensed.txt',
+    'launcher/vendor/walnut/LICENSE.txt',
+    'launcher/vendor/walnut/vendor/stb_image/stb_image.h',
+    'launcher/vendor/imgui/LICENSE.txt',
+    'launcher/vendor/imgui/imstb_rectpack.h',
+    'launcher/vendor/imgui/imstb_textedit.h',
+    'launcher/vendor/imgui/imstb_truetype.h',
+    'launcher/vendor/imgui/imgui_draw.cpp',
+    'launcher/vendor/glfw/LICENSE.md',
+    'launcher/vendor/glm/copying.txt',
+    'launcher/vendor/spdlog/LICENSE',
+    'launcher/vendor/spdlog/include/spdlog/fmt/bundled/fmt.license.rst',
+    'launcher/vendor/json/LICENSE.MIT',
+    'launcher/vendor/json/single_include/nlohmann/json.hpp',
+    'launcher/vendor/vulkan-headers/LICENSE.md',
+    'launcher/vendor/vulkan-headers/LICENSES/Apache-2.0.txt',
+    'launcher/vendor/vulkan-headers/LICENSES/MIT.txt',
+)
 PRIVATE_DIRS = {'game', 'local', 'save', 'reports', '.work', '.venv',
                 '.wine', '.proton', 'releases', 'recomp'}
 BINARY_SUFFIXES = {'.exe', '.dll', '.pdb', '.bin', '.xbe', '.iso', '.xiso', '.zip',
@@ -96,6 +120,11 @@ def collect_sources(root):
             if SECRET.search(data):
                 raise ValueError(f'Possible secret in {name}; refusing release')
             entries[name] = data
+    for name in LAUNCHER_FILES:
+        data = safe_file(root / name, root).read_bytes()
+        if SECRET.search(data):
+            raise ValueError(f'Possible secret in {name}; refusing release')
+        entries[name] = data
     missing = ROOT_FILES - entries.keys()
     if missing:
         raise ValueError(f'Required files are not tracked: {sorted(missing)}')
@@ -167,7 +196,7 @@ def build(root, launchers, output, version, allow_dirty=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parents[2]
-    parser.add_argument('--version', required=True)
+    parser.add_argument('--version', default=(root / 'VERSION').read_text(encoding='utf-8').strip())
     parser.add_argument('--launchers', type=Path, default=root / 'build-release-launchers')
     parser.add_argument('--output', type=Path, default=root / 'releases')
     parser.add_argument('--allow-dirty', action='store_true', help='Local validation only; manifest records this')

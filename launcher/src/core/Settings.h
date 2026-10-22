@@ -58,6 +58,10 @@ struct Settings {
     std::string crosshair = "original";
     std::string hitmarkers = "off";
     std::string optional_secondaries = "off";  // mission completion still requires primary objectives
+    int lod_distance = 100;                    // percentages: 100 keeps the original distances/damage/health
+    int bullet_damage = 100;
+    int enemy_health = 100;
+    std::string headshot_instakill = "off";
 
     // Input
     std::string inputMode = "auto";
@@ -72,6 +76,9 @@ inline constexpr std::array<int, 7> kFrameLimits = {0, 30, 60, 120, 144, 165, 24
 inline constexpr std::array<int, 5> kInternalHeights = {480, 720, 1080, 1440, 2160};
 inline constexpr std::array<int, 5> kAnisotropy = {1, 2, 4, 8, 16};
 inline constexpr std::array<int, 3> kSmoothHz = {0, 120, 240};
+inline constexpr std::array<int, 6> kLodDistances = {100, 200, 300, 500, 800, 1000};
+inline constexpr std::array<int, 8> kBulletDamages = {50, 100, 150, 200, 300, 400, 600, 1000};
+inline constexpr std::array<int, 8> kEnemyHealths = {25, 50, 75, 100, 150, 200, 300, 400};
 inline constexpr double kFovMin = 35.0;
 inline constexpr double kFovMax = 120.0;
 inline constexpr std::array<std::string_view, 2> kWindowModes = {"windowed", "borderless"};

@@ -26,7 +26,7 @@ Extract the complete release onto a writable, case-sensitive Linux filesystem,
 then open **Build BLACK.sh**, or run:
 
 ```bash
-cd '/path/to/BLACK-0.1.0-alpha.4'
+cd '/path/to/BLACK-0.1.0-alpha.5'
 bash './Build BLACK.sh'
 ```
 
@@ -109,6 +109,13 @@ The launcher reads them when it starts the game.
 
 ## Steam Proton
 
+After building, close Steam and choose **Add to Steam** in BLACK Launcher.
+Select your local account and confirm, then restart Steam. Existing shortcuts
+are backed up before BLACK is added. Keep the installation in the same folder.
+The shortcut targets the native **BLACK Launcher** with `--play`; leave Steam's
+forced compatibility tool disabled for this entry. It uses the launcher's
+configured Wine route unless you supply the Proton environment below.
+
 The launcher runs the game through Proton when `BLACK_PROTON` names a Proton
 script, with the same environment for both entry points:
 
@@ -130,9 +137,10 @@ and `game/TDATA/`. Back up all three save locations with the game closed.
 Do not remove the release folder when it contains progress you want to keep.
 Session logs are in `reports/launcher-*/`.
 
-**Not yet validated:** the native launcher has not yet been built and run on Linux; its
-Linux build is checked by CI only. The validation below was done with the earlier
-C#/.NET launcher under Wine.
+The native C++ launcher builds and passes its core and headless UI tests on
+Ubuntu 24.04 with warnings as errors. A live native Linux launcher session has
+not been validated. The game validation below used the earlier C#/.NET launcher
+under Wine.
 
 Validation generated and built the complete game and the earlier launchers with Linux
 tools on Ubuntu 24.04. The resulting game was tested under WSLg with Wine 9.0,

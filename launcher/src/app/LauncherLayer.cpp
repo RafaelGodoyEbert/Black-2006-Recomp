@@ -6,6 +6,7 @@
 #include "app/NativeDialogs.h"
 #include "app/SaveFlow.h"
 #include "app/SettingsFlow.h"
+#include "app/SteamFlow.h"
 #include "app/Theme.h"
 #include "app/Translations.h"
 #include "core/Files.h"
@@ -26,7 +27,7 @@
 namespace black::app {
 namespace {
 
-constexpr float kBannerHeight = 176.0f;
+constexpr float kBannerHeight = 140.0f;
 constexpr float kCompactBannerHeight = 120.0f;  // pages with long lists
 constexpr float kPageMargin = 64.0f;
 constexpr float kMenuWidth = 470.0f;
@@ -213,6 +214,11 @@ Page LauncherLayer::mainPage() {
         add(Action::Saves,
             {tr("SAVE GAME"), "", tr("Rename a profile, open missions, or put a backup back."), canConfigure});
     }
+    add(Action::Steam, {tr("ADD TO STEAM"), "",
+                        playing() ? tr("Available when the game is closed.")
+                        : ready() ? tr("Add a shortcut to this installation in your Steam Library.")
+                                  : tr("Available once your disc is in place and the game is built."),
+                        ready() && !playing()});
     add(Action::OpenFolder, {tr("OPEN GAME FOLDER"), "", tr("Opens the folder with the game, your saves and settings."),
                              m_project.has_value()});
     add(Action::Quit, {tr("QUIT"), "", tr("Closes the launcher."), true});
@@ -258,12 +264,24 @@ void LauncherLayer::run(Action action) {
         case Action::Quit: Walnut::Application::Get().Close(); break;
         case Action::Disc: openDiscPages(); break;
         case Action::Build: openFlow(std::make_unique<BuildFlow>(*m_project, &m_rowFont)); break;
+        case Action::Steam:
+            if (ready() && !playing()) {
+                openFlow(std::make_unique<SteamFlow>(*m_project));
+            }
+            break;
     }
     m_notice = result ? std::string() : result.error().message;
 }
 
 void LauncherLayer::startGame() {
-    auto session = core::GameSession::start(*m_project, core::loadSettings(*m_project));
+    const auto settings = core::loadSettings(*m_project);
+    if (core::texturePackProblem(*m_project, settings)) {
+        m_notice =
+            tr("The HD texture pack folder is missing. Add the pack to texture_pack_hd, or choose Original in "
+               "Settings > Game > Textures.");
+        return;
+    }
+    auto session = core::GameSession::start(*m_project, settings);
     if (!session) {
         m_notice = session.error().message;
         return;

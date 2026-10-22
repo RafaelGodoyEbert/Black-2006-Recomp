@@ -6,6 +6,35 @@ keyboard and mouse controls, XInput controller support, video settings, a PC
 launcher, and native audio output. Movies are enabled by default. The Windows
 build can also run on x86_64 Linux through Wine/Proton; see [Linux setup](docs/linux.md).
 
+## Start here
+
+1. Open the [release downloads](https://github.com/portingpete/Black-2006-Recomp/releases).
+   On Windows, download **BLACK-0.1.0-alpha.5-starter.zip**. On Linux, use
+   **BLACK-0.1.0-alpha.5-starter.tar.gz**. GitHub's **Source code** downloads do not
+   include the compiled launchers or required submodule sources.
+2. Extract the **whole archive** into a writable folder, for example `C:\Games\BLACK`.
+   Open **BLACK Launcher.exe** on Windows, or **BLACK Settings.sh** on Linux.
+3. Choose **Your disc** and select your own supported **original Xbox** BLACK disc
+   image (ISO/XISO) or the folder containing `default.xbe`. Keep the complete disc
+   contents together. The launcher checks the release before copying the files.
+4. Choose **Build the game**. On Windows, the launcher offers to install missing
+   build tools; accept their installer prompts. The first build needs an internet
+   connection, free disk space and several minutes. On Linux, follow the dependency
+   instructions in [Linux setup](docs/linux.md) first.
+5. When the build finishes, choose **Play**. Use this launcher again for settings
+   and future launches.
+
+The download contains the launcher and build sources. You supply the game files;
+the launcher builds the PC game on your computer. Copying files into `game/` alone
+does not build it. The PS2 version and other Xbox revisions are not supported;
+**Your disc** reports an unsupported executable before copying it. You do not need
+to clone this repository or run terminal commands for the Windows starter.
+
+If building fails, choose **Open the log** on the build-failure screen. For game
+problems, use **Settings > Diagnostics**. Include the error and your operating
+system when [reporting a problem](https://github.com/portingpete/Black-2006-Recomp/issues).
+See **START HERE.txt** inside the download for the same steps offline.
+
 ## The launcher
 
 **BLACK Launcher** sets the game up and starts it. It is written in C++ on [Walnut](https://github.com/StudioCherno/Walnut)
@@ -28,6 +57,9 @@ and drawn like the game's own menu pages, with the game's menu fonts once your d
   folder names, for you to check and send.
 - **Save game**: rename a profile slot, open or lock missions and set their results, or unlock them all. Every save
   backs the profile up first (`local/profile-backups/`), and any backup can be put back.
+- **Add to Steam**: after building, close Steam, choose this row, select your Steam account and confirm.
+  The launcher backs up existing shortcuts before adding BLACK. Restart Steam to see it in your library.
+  Keep the installation in the same folder so the shortcut keeps working.
 - It speaks the six menu languages (Settings > Game > Menu language).
 
 See [launcher/README.md](launcher/README.md) to build or change it.
@@ -42,6 +74,21 @@ See [launcher/README.md](launcher/README.md) to build or change it.
 | **Save game** | **In Portuguese** |
 | ![Save game missions](docs/images/launcher-save.png) | ![The main menu in Brazilian Portuguese](docs/images/launcher-pt-br.png) |
 
+## LOD and gameplay options
+
+In **Settings > Graphics**, **LOD distance** keeps detailed meshes and distant props visible farther away.
+Choose 1X (original), 2X, 3X, 5X, 8X or 10X. Higher values can increase rendering work; level streaming and
+view-frustum limits still apply. The same option is available in the in-game Graphics menu.
+
+In **Settings > Gameplay**, or the in-game Gameplay menu:
+
+- **Bullet damage** scales player bullets against enemies, from 0.5X to 10X. Enemy bullets keep their original damage.
+- **Enemy health** scales health at spawn, from 0.25X to 4X. Restart the mission to apply it to existing enemies.
+- **Instant-kill headshots** makes player head hits lethal, including helmeted enemies. Invulnerable enemies remain protected.
+
+Combat defaults are 1X damage, 1X health and instant kills Off. Armor and the game's death/headshot tracking
+continue through the native rules. These options are independent of difficulty and optional secondary objectives.
+
 ## HD textures
 
 The game can use [BLACK HD Reimagined](#credits-and-licensing), a texture pack made by HD REIMAGINED for the PS2
@@ -51,11 +98,13 @@ To install it:
 
 1. Download the pack from ModDB:
    [BLACK HD Reimagined Texture Pack](https://www.moddb.com/mods/black-hd-reimagined/addons/black-hd-reimagined-texture-pack).
-2. Make a folder named `texture_pack_hd` next to `BLACK Launcher.exe`.
+2. Choose **Settings > Game > Open HD pack folder** in the launcher. This creates and opens
+   `texture_pack_hd` next to the launcher. The status row shows whether the folder exists.
 3. Extract the download into it. Any layout of subfolders works: the PCSX2 one
    (`texture_pack_hd/SLUS-21376/replacements/...`) is fine as it is.
 4. In the launcher, choose **Settings > Game > Textures: HD PACK**, then **Play**. **ORIGINAL** goes back to the
-   game's own textures.
+   game's own textures. If the folder is missing, the launcher explains where to put the pack.
+   A found folder does not prove that every pack file is installed.
 
 The pack's files are named by PS2 hashes that mean nothing to the Xbox version. Instead,
 [`textures/black-hd-reimagined.map`](textures/black-hd-reimagined.map) says which pack file replaces which game
@@ -195,7 +244,8 @@ For a build entirely on Linux, follow [the Linux guide](docs/linux.md) and run
 
 Requirements:
 
-- Windows x64, an AVX2-capable CPU, and a Direct3D 11 graphics device.
+- Windows x64, an AVX2-capable CPU, and a graphics driver supporting Vulkan
+  (the launcher) and Direct3D 11 (the game). No Vulkan SDK is needed.
 - Visual Studio 2022's C++ tools (the Build Tools are enough), CMake 3.21 or newer, Python 3.10 or newer and
   Rustup (the pinned DSP build fetches Rust 1.98.1 itself). The launcher's **Build the game** installs any of
   these that are missing, with winget. Git is needed only to fetch a clone's submodules.
@@ -215,7 +265,8 @@ supported by this build.
 Clone with submodules, then build from PowerShell in this repository:
 
 ```powershell
-git clone --recursive https://github.com/PauloVx/Black-2006-Recomp.git
+git clone --recursive https://github.com/portingpete/Black-2006-Recomp.git
+cd Black-2006-Recomp
 .\scripts\setup.ps1
 .\'BLACK Launcher.exe'
 ```

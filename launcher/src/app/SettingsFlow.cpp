@@ -64,6 +64,15 @@ std::vector<Choice<std::string>> qualities() {
     return {{"low", tr("LOW")}, {"medium", tr("MEDIUM")}, {"high", tr("HIGH")}, {"ultra", tr("ULTRA")}};
 }
 
+template <typename Values>
+std::vector<Choice<int>> multipliers(const Values& values) {
+    std::vector<Choice<int>> choices;
+    for (const int value : values) {
+        choices.push_back({value, fixed(value / 100.0, value % 100 == 0 ? 0 : value % 10 == 0 ? 1 : 2) + "X"});
+    }
+    return choices;
+}
+
 constexpr std::array<std::pair<int, int>, 29> kWindowSizes = {{
     {640, 480},   {800, 600},   {1024, 768},  {1152, 864},  {1280, 720},  {1280, 800},  {1280, 960},  {1280, 1024},
     {1366, 768},  {1400, 1050}, {1440, 900},  {1600, 900},  {1600, 1200}, {1680, 1050}, {1920, 1080}, {1920, 1200},
@@ -75,7 +84,11 @@ constexpr std::size_t kSlots = bindings::kMaxKeysPerAction;
 
 }  // namespace
 
-SettingsFlow::SettingsFlow(core::ProjectLayout project) : m_project(std::move(project)) {
+SettingsFlow::SettingsFlow(core::ProjectLayout project, FolderOpener openFolder)
+    : m_project(std::move(project)), m_openFolder(std::move(openFolder)) {
+    if (!m_openFolder) {
+        m_openFolder = [](const std::filesystem::path& folder) { return core::openFolder(folder); };
+    }
     reload();
 }
 
@@ -291,6 +304,13 @@ std::vector<SettingsFlow::Option> SettingsFlow::graphicsOptions() {
                            "need Reflections above Original."),
                         s.rayTracing, {{"off", tr("OFF")}, {"on", tr("ON")}}));
 #endif
+    const auto distances = multipliers(core::choices::kLodDistances);
+    rows.push_back({tr("LOD DISTANCE"),
+                    tr("Scales object and geometry detail distance. 1X keeps the original distances; higher values "
+                       "cost more performance."),
+                    [&s, distances] { return distances[indexOf(distances, s.lod_distance)].label; },
+                    [&s, distances](int step) { cycle(distances, s.lod_distance, step); },
+                    {}});
     return rows;
 }
 
@@ -346,6 +366,13 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameplayOptions() {
                       [&field, list](int step) { cycle(list, field, step); },
                       {}};
     };
+    const auto percent = [](std::string label, std::string help, int& field, std::vector<Choice<int>> list) {
+        return Option{std::move(label),
+                      std::move(help),
+                      [&field, list] { return list[indexOf(list, field)].label; },
+                      [&field, list](int step) { cycle(list, field, step); },
+                      {}};
+    };
     return {
         pick(tr("CROSSHAIR"),
              tr("A crosshair around the game's dot that opens as you move and fire. Off keeps the dot alone."),
@@ -357,6 +384,15 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameplayOptions() {
              tr("Allow mission completion without the required secondary objectives. Primary objectives are still "
                 "required."),
              s.optional_secondaries, {{"off", tr("OFF")}, {"on", tr("ON")}}),
+        percent(tr("BULLET DAMAGE"), tr("Scales your bullets' damage against enemies. 1X keeps the original damage."),
+                s.bullet_damage, multipliers(core::choices::kBulletDamages)),
+        percent(tr("ENEMY HEALTH"),
+                tr("Scales enemy health when they spawn. 1X keeps the original health. Restart the mission to apply "
+                   "it to existing enemies."),
+                s.enemy_health, multipliers(core::choices::kEnemyHealths)),
+        pick(tr("INSTANT-KILL HEADSHOTS"),
+             tr("Your confirmed headshots kill enemies instantly. Off keeps the game's normal damage rules."),
+             s.headshot_instakill, {{"off", tr("OFF")}, {"on", tr("ON")}}),
     };
 }
 
@@ -427,6 +463,37 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameOptions() {
                         cycle(modes, s.textures, step);
                     },
                     {}});
+    rows.push_back({tr("HD PACK FOLDER"),
+                    tr("Extract the optional HD texture pack into texture_pack_hd next to the launcher. The pack "
+                       "is not included."),
+                    [this] {
+                        std::error_code error;
+                        return std::filesystem::is_directory(m_project.root() / "texture_pack_hd", error)
+                                   ? tr("FOLDER FOUND")
+                                   : tr("MISSING");
+                    },
+                    {},
+                    [] { return false; }});
+    rows.push_back({tr("OPEN HD PACK FOLDER"),
+                    tr("Creates the texture_pack_hd folder if needed, then opens it. Extract your HD pack there."),
+                    [] { return std::string(); },
+                    [this](int) {
+                        const auto folder = m_project.root() / "texture_pack_hd";
+                        std::error_code error;
+                        std::filesystem::create_directories(folder, error);
+                        if (error) {
+                            m_notice = trf("Could not create the HD pack folder: {0}", {error.message()});
+                            m_noticeIsProblem = true;
+                        } else if (auto opened = m_openFolder(folder); !opened) {
+                            m_notice = opened.error().message;
+                            m_noticeIsProblem = true;
+                        } else {
+                            m_notice = tr("Extract the HD pack into this folder, then select HD Pack.");
+                            m_noticeIsProblem = false;
+                        }
+                    },
+                    {},
+                    false});
     rows.push_back(toggle(tr("INFINITE AMMO"), tr("Weapons never run out."), s.infiniteAmmo));
     rows.push_back({tr("SILVER WEAPONS"),
                     tr("The silver weapons the game unlocks on Hard. Game keeps its own rules."),
@@ -754,8 +821,7 @@ Page SettingsFlow::page() {
             {tr("DISPLAY"), "", tr("Window, resolution, camera and field of view."), true},
             {tr("GRAPHICS"), "", tr("Anti-aliasing, ambient occlusion, reflections and other effects."), true},
             {tr("CONTROLS"), "", tr("Key bindings, mouse and controller."), true},
-            {tr("GAMEPLAY"), "",
-             tr("Crosshair, hit markers and optional secondary objectives. All are off by default."), true},
+            {tr("GAMEPLAY"), "", tr("Crosshair, hit markers, mission rules and combat tuning."), true},
             {tr("GAME"), "", tr("Renderer, game clock, menu language and cheats."), true},
             {tr("DIAGNOSTICS"), "", tr("Logs for finding problems, and reporting one."), true},
             {tr("BACK"), "", "", true},

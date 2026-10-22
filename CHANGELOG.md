@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.5 — 2026-10-22
+
+**First C++ BLACK Launcher release on portingpete/Black-2006-Recomp.** The starter
+includes the Windows and native Linux launchers. Import your supported Xbox disc,
+choose **Build the game**, then **Play**. A new quick start and `START HERE.txt`
+explain the complete flow, distinguish starter archives from source downloads,
+and correct the source-clone instructions. Release packaging now reads `VERSION`
+by default so archive names follow the game and launcher version.
+The Windows launcher includes its C++ runtime, so it can open before build tools
+are installed. Bundled font and library notices are preserved in the starter.
+
+**LOD and combat tuning.** Graphics settings can extend native mesh LOD and prop visibility
+from 1X to 10X. Gameplay settings add player bullet damage (0.5X–10X), enemy spawn
+health (0.25X–4X), and headshot instant kills. Defaults preserve original behavior;
+restart a mission after changing enemy health. Armor, invulnerability and native
+death/headshot handling are retained. Both launcher and in-game menus save these options.
+
+**Add to Steam.** The launcher can add a shortcut for the built game to a selected
+local Steam account, with explicit confirmation, backups, duplicate detection,
+and a requirement to close Steam first. The HD texture setup now has a folder-status
+row, a create/open-folder action and a clear error when the folder is missing.
+
 **Optional secondary objectives.** A new toggle in the launcher and in-game
 Gameplay settings removes secondary-objective requirements for mission
 completion. It defaults to Off; primary objectives and earned secondary

@@ -18,7 +18,8 @@ namespace black::app {
 /// saved at once to local/ where the game reads it.
 class SettingsFlow final : public MenuFlow {
 public:
-    explicit SettingsFlow(core::ProjectLayout project);
+    using FolderOpener = std::function<core::Result<bool>(const std::filesystem::path&)>;
+    explicit SettingsFlow(core::ProjectLayout project, FolderOpener openFolder = {});
 
     /// Reads the settings again (the game's own settings pages may have changed them).
     void reload();
@@ -67,6 +68,7 @@ private:
     void save();
 
     core::ProjectLayout m_project;
+    FolderOpener m_openFolder;
     core::Settings m_settings;
     Section m_section = Section::Hub;
     Section m_lastSection = Section::Display;

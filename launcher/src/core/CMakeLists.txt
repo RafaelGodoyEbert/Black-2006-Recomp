@@ -17,6 +17,7 @@ add_library(black_launcher_core STATIC
     Settings.cpp
     Sha1.cpp
     Sha256.cpp
+    SteamShortcut.cpp
     Text.cpp
     Toolchain.cpp
     TraceLog.cpp
