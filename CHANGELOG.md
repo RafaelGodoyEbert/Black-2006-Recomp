@@ -10,6 +10,8 @@ choose **Build the game**, then **Play**. A new quick start and `START HERE.txt`
 explain the complete flow, distinguish starter archives from source downloads,
 and correct the source-clone instructions. Release packaging now reads `VERSION`
 by default so archive names follow the game and launcher version.
+The Windows launcher includes its C++ runtime, so it can open before build tools
+are installed. Bundled font and library notices are preserved in the starter.
 
 **Optional secondary objectives.** A new toggle in the launcher and in-game
 Gameplay settings removes secondary-objective requirements for mission

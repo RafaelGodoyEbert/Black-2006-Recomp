@@ -23,6 +23,10 @@ command that installs them.
 
 ## Building
 
+Starter archives include the compiled launcher and its license notices. To build
+or change it, clone the [repository](https://github.com/portingpete/Black-2006-Recomp)
+with `--recursive`; the starter does not include the full launcher sources.
+
 Needs CMake 3.21+ and a C++20 compiler; nothing else. The Vulkan headers are a submodule
 (`vendor/vulkan-headers`), and the launcher links against the Vulkan loader that graphics drivers install: on
 Windows through an import library made at configure time. `-DBLACK_LAUNCHER_VULKAN_SDK=ON` builds against an

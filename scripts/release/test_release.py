@@ -37,6 +37,10 @@ class ReleaseTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'# host source\n')
+        for name in release.LAUNCHER_FILES:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'# original launcher notice\n')
         for module in release.SUBMODULES:  # their own repositories, as in a checkout
             path = self.root / module
             path.mkdir(parents=True)
@@ -76,6 +80,9 @@ class ReleaseTests(unittest.TestCase):
             self.assertNotIn('src/recomp/gen/recomp_0.c', files)
             self.assertNotIn('local/xbox-launcher.json', files)
             self.assertIn('localization/game/es.jsonl', files)
+            self.assertIn('START HERE.txt', files)
+            for name in release.LAUNCHER_FILES:
+                self.assertEqual(files[name], (self.root / name).read_bytes())
             self.assertEqual({name for name in files if name.startswith('BLACK Launcher')}, set(release.LAUNCHERS))
             self.assertEqual(marker_platforms(files), ['windows-x86_64', 'linux-x86_64-wine'])
             self.assertEqual(archive.getinfo('BLACK-0.1.0-alpha.1/BLACK Launcher').external_attr >> 16 & 0o777, 0o755)
@@ -117,6 +124,11 @@ class ReleaseTests(unittest.TestCase):
         path.write_text('generated code', encoding='utf-8')
         self.stage()
         with self.assertRaisesRegex(ValueError, 'Private path'):
+            release.collect_sources(self.root)
+
+    def test_missing_launcher_notice_rejected(self):
+        (self.root / 'launcher/assets/fonts/OFL-RussoOne.txt').unlink()
+        with self.assertRaises(FileNotFoundError):
             release.collect_sources(self.root)
 
     def test_tracked_bank_and_secret_rejected(self):

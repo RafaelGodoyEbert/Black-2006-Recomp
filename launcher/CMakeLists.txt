@@ -9,6 +9,13 @@
 cmake_minimum_required(VERSION 3.21)
 project(BlackLauncher VERSION 0.1.0 LANGUAGES C CXX)
 
+if(MSVC)
+    # The starter must open before it installs any build tools or redistributable.
+    # Keep every static dependency on the same CRT as the launcher.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF CACHE BOOL "Use MSVC runtime library DLL" FORCE)
+endif()
+
 # The release version (the repository's VERSION file), shared with the game
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" BLACK_VERSION LIMIT_COUNT 1)
 

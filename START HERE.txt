@@ -1,6 +1,10 @@
 BLACK 2006 RECOMP - START HERE
 
 WINDOWS
+Needs Windows x64, an AVX2-capable CPU, and a graphics driver supporting Vulkan
+(the launcher) and Direct3D 11 (the game). Update your graphics driver if Windows
+reports that vulkan-1.dll is missing. No Vulkan SDK is needed.
+
 1. Extract the entire starter ZIP into a writable folder, such as C:\Games\BLACK.
    Do not run the launcher from inside the ZIP.
 2. Open BLACK Launcher.exe.

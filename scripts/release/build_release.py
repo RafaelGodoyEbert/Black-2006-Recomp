@@ -25,6 +25,30 @@ SOURCE_DIRS = {'cmake', 'docs', 'LICENSES', 'localization', 'scripts', 'src', 't
                'subtitles', 'tests', 'translations'}
 # Submodules ship in the archive (it has no .git to fetch them): their tracked sources, without test binaries.
 SUBMODULES = ('third_party/xboxrecomp', 'third_party/dsp56300')
+# The compiled launcher embeds fonts and statically links these libraries. Carry
+# their original notices even though the starter does not need launcher sources.
+# stb's notices live in its headers; keep those complete and unmodified.
+LAUNCHER_FILES = (
+    'launcher/README.md',
+    'launcher/assets/fonts/OFL-RussoOne.txt',
+    'launcher/assets/fonts/OFL-SairaCondensed.txt',
+    'launcher/vendor/walnut/LICENSE.txt',
+    'launcher/vendor/walnut/vendor/stb_image/stb_image.h',
+    'launcher/vendor/imgui/LICENSE.txt',
+    'launcher/vendor/imgui/imstb_rectpack.h',
+    'launcher/vendor/imgui/imstb_textedit.h',
+    'launcher/vendor/imgui/imstb_truetype.h',
+    'launcher/vendor/imgui/imgui_draw.cpp',
+    'launcher/vendor/glfw/LICENSE.md',
+    'launcher/vendor/glm/copying.txt',
+    'launcher/vendor/spdlog/LICENSE',
+    'launcher/vendor/spdlog/include/spdlog/fmt/bundled/fmt.license.rst',
+    'launcher/vendor/json/LICENSE.MIT',
+    'launcher/vendor/json/single_include/nlohmann/json.hpp',
+    'launcher/vendor/vulkan-headers/LICENSE.md',
+    'launcher/vendor/vulkan-headers/LICENSES/Apache-2.0.txt',
+    'launcher/vendor/vulkan-headers/LICENSES/MIT.txt',
+)
 PRIVATE_DIRS = {'game', 'local', 'save', 'reports', '.work', '.venv',
                 '.wine', '.proton', 'releases', 'recomp'}
 BINARY_SUFFIXES = {'.exe', '.dll', '.pdb', '.bin', '.xbe', '.iso', '.xiso', '.zip',
@@ -96,6 +120,11 @@ def collect_sources(root):
             if SECRET.search(data):
                 raise ValueError(f'Possible secret in {name}; refusing release')
             entries[name] = data
+    for name in LAUNCHER_FILES:
+        data = safe_file(root / name, root).read_bytes()
+        if SECRET.search(data):
+            raise ValueError(f'Possible secret in {name}; refusing release')
+        entries[name] = data
     missing = ROOT_FILES - entries.keys()
     if missing:
         raise ValueError(f'Required files are not tracked: {sorted(missing)}')

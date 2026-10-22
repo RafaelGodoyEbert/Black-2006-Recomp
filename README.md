@@ -224,7 +224,8 @@ For a build entirely on Linux, follow [the Linux guide](docs/linux.md) and run
 
 Requirements:
 
-- Windows x64, an AVX2-capable CPU, and a Direct3D 11 graphics device.
+- Windows x64, an AVX2-capable CPU, and a graphics driver supporting Vulkan
+  (the launcher) and Direct3D 11 (the game). No Vulkan SDK is needed.
 - Visual Studio 2022's C++ tools (the Build Tools are enough), CMake 3.21 or newer, Python 3.10 or newer and
   Rustup (the pinned DSP build fetches Rust 1.98.1 itself). The launcher's **Build the game** installs any of
   these that are missing, with winget. Git is needed only to fetch a clone's submodules.
