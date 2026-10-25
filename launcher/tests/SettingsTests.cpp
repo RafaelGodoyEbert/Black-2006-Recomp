@@ -16,6 +16,25 @@ std::string fileText(const std::filesystem::path& path) {
 
 }  // namespace
 
+TEST_CASE("Startup video skipping migrates menu automation and respects explicit choices") {
+    CHECK_FALSE(defaultSettings().skipStartupVideos);
+    CHECK_FALSE(settingsFromJson("{}").skipStartupVideos);
+    CHECK(settingsFromJson(R"({"AdvanceMenus":true})").skipStartupVideos);
+    CHECK_FALSE(settingsFromJson(R"({"AdvanceMenus":false})").skipStartupVideos);
+    CHECK_FALSE(settingsFromJson(R"({"AdvanceMenus":"true"})").skipStartupVideos);
+    CHECK_FALSE(settingsFromJson(R"({"AdvanceMenus":true,"SkipStartupVideos":false})").skipStartupVideos);
+    CHECK(settingsFromJson(R"({"AdvanceMenus":false,"SkipStartupVideos":true})").skipStartupVideos);
+    CHECK_FALSE(settingsFromJson(R"({"AdvanceMenus":true,"SkipStartupVideos":"true"})").skipStartupVideos);
+    for (const bool enabled : {false, true}) {
+        Settings settings = defaultSettings();
+        settings.skipStartupVideos = enabled;
+        const auto json = settingsJson(settings);
+        CHECK(json.find("AdvanceMenus") == std::string::npos);
+        CHECK(settingsFromJson(json).skipStartupVideos == enabled);
+        CHECK_FALSE(settingsFromJson(json).skipMovies);
+    }
+}
+
 TEST_CASE("Gameplay additions default off and preserve explicit independent choices") {
     const Settings defaults = defaultSettings();
     CHECK(defaults.crosshair == "original");

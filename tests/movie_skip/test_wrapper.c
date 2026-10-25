@@ -82,6 +82,7 @@ static void movie(const char *stem)
     generated_calls=0;
     g_eax=10; g_ecx=11; g_edx=12; g_ebx=13; g_esi=MOVIE; g_edi=14; g_esp=STACK;
     movie_skip_all=0;
+    movie_skip_startup=0;
 }
 
 static void check_abi(void)
@@ -100,6 +101,58 @@ int main(void)
     assert(active_kind==PC_MOVIE_SKIP_INTRO && active_session && generated_calls==1);
     assert(subtitle_target_session==active_session && !strcmp(subtitle_target_stem,"LO_n_US"));
     assert(!guest[MOVIE+0x62u]); check_abi();
+
+    /* The startup-only setting ends the logo through native EOF with no
+     * input request. It must retain guest state and leave all other movies
+     * (including unknown stems) to the ordinary pump. */
+    {
+        static const char *stems[] = {"LO_n_US", "lo_N_us", "03_n", "C_N_Us", "AK_n", "unknown"};
+        unsigned i;
+        int all, startup;
+        for (all=0; all<=1; ++all) for (startup=0; startup<=1; ++startup) {
+            for (i=0; i<sizeof(stems)/sizeof(stems[0]); ++i) {
+                int skip = all || (startup && i<2);
+                movie(stems[i]); movie_skip_all=all; movie_skip_startup=startup;
+                requested_session=0;
+                fesetround(FE_UPWARD); csr=_mm_getcsr();
+                sub_000C4570();
+                assert(!!guest[MOVIE+0x62u]==skip && generated_calls==!skip);
+                assert(fegetround()==FE_UPWARD && _mm_getcsr()==csr);
+                assert(g_eax==(skip ? 10u : 0x12345678u)); check_abi();
+            }
+        }
+    }
+    /* Settings are read in the real wrapper, including explicit OFF. */
+    movie("LO_n_US"); movie_skip_startup=-1;
+    _putenv_s("RECOMP_BLACK_SKIP_STARTUP_VIDEOS", "1");
+    sub_000C4570();
+    assert(guest[MOVIE+0x62u] && generated_calls==0); check_abi();
+    movie("LO_n_US"); movie_skip_startup=-1;
+    _putenv_s("RECOMP_BLACK_SKIP_STARTUP_VIDEOS", "0");
+    sub_000C4570();
+    assert(!guest[MOVIE+0x62u] && generated_calls==1); check_abi();
+    movie("LO_n_US"); movie_skip_startup=-1;
+    _putenv_s("RECOMP_BLACK_SKIP_STARTUP_VIDEOS", "");
+    sub_000C4570();
+    assert(!guest[MOVIE+0x62u] && generated_calls==1); check_abi();
+
+    /* Never end a looping video, a decoder still opening, or a pending
+     * replacement, even when its name matches the startup logo. */
+    movie("LO_n_US"); movie_skip_startup=1;
+    *(uint32_t *)(guest+MANAGER+0x198u)=1u;
+    sub_000C4570();
+    assert(!guest[MOVIE+0x62u] && generated_calls==1); check_abi();
+    movie("LO_n_US"); movie_skip_startup=1;
+    *(uint32_t *)(guest+MOVIE+0x48u)=2u;
+    sub_000C4570();
+    assert(!guest[MOVIE+0x62u] && generated_calls==1); check_abi();
+    *(uint32_t *)(guest+MOVIE+0x48u)=0x1Cu; g_esp=STACK;
+    sub_000C4570();
+    assert(guest[MOVIE+0x62u] && generated_calls==1); check_abi();
+    movie("LO_n_US"); movie_skip_startup=1;
+    guest[MANAGER+0x1B8u]=1;
+    sub_000C4570();
+    assert(!guest[MOVIE+0x62u] && generated_calls==1); check_abi();
 
     movie("03_n");
     fesetround(FE_DOWNWARD);
@@ -163,6 +216,6 @@ int main(void)
     movie("09_n"); g_esi=0xFFFFFFFFu;
     generated_action=0; sub_000C4570();
     assert(!active_session && generated_calls==1);
-    puts("PASS: movie wrapper classification, ownership, EOF, reopen, replacement, loop exclusion, lab skip, stale requests, bounded strings and guest ABI/FP preservation");
+    puts("PASS: movie wrapper classification, ownership, EOF, reopen, replacement, loop exclusion, startup-only/all-movie settings, stale requests, bounded strings and guest ABI/FP preservation");
     return 0;
 }

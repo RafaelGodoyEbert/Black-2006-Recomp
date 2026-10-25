@@ -24,18 +24,40 @@ TEST_CASE("The game environment follows the settings") {
     CHECK_FALSE(env.contains("RECOMP_BLACK_HZ"));
     CHECK_FALSE(env.contains("RECOMP_KELVIN_ASSIST_QUEUE"));
     CHECK_FALSE(env.contains("RECOMP_PAD_SCRIPT"));
+    CHECK_FALSE(env.contains("RECOMP_BLACK_SKIP_STARTUP_VIDEOS"));
 
     settings.smoothHz = 120;
     settings.internalHeight = 1440;
     settings.cameraAspect = "21:9";
-    settings.advanceMenus = true;
+    settings.skipStartupVideos = true;
     settings.silverWeaponMode = "force-off";
     env = gameEnvironment(project, settings, PathStyle::Native);
     CHECK(env.at("RECOMP_BLACK_HZ") == "120");
     CHECK_FALSE(env.contains("RECOMP_BLACK_60HZ"));
     CHECK(env.at("RECOMP_KELVIN_ASSIST_QUEUE") == "1");
     CHECK(env.at("RECOMP_BLACK_SILVER_WEAPONS") == "0");
-    CHECK(env.at("RECOMP_PAD_SCRIPT").starts_with("20000:A/600,23000:A/600"));
+    CHECK_FALSE(env.contains("RECOMP_PAD_SCRIPT"));
+    CHECK(env.at("RECOMP_BLACK_SKIP_STARTUP_VIDEOS") == "1");
+    CHECK_FALSE(env.contains("RECOMP_BLACK_SKIP_MOVIES"));
+}
+
+TEST_CASE("Movie skipping never injects keyboard or controller presses") {
+    const ProjectLayout project(std::filesystem::path("/games/black"));
+    for (const bool startup : {false, true}) {
+        for (const bool allMovies : {false, true}) {
+            Settings settings = defaultSettings();
+            settings.skipStartupVideos = startup;
+            settings.skipMovies = allMovies;
+            const auto env = gameEnvironment(project, settings, PathStyle::Native);
+            CHECK(env.contains("RECOMP_BLACK_SKIP_STARTUP_VIDEOS") == startup);
+            CHECK(env.contains("RECOMP_BLACK_SKIP_MOVIES") == allMovies);
+            CHECK_FALSE(env.contains("RECOMP_PAD_SCRIPT"));
+            CHECK_FALSE(env.contains("RECOMP_INPUT_SCRIPT"));
+        }
+    }
+    const auto migrated = gameEnvironment(project, settingsFromJson(R"({"AdvanceMenus":true})"), PathStyle::Native);
+    CHECK(migrated.at("RECOMP_BLACK_SKIP_STARTUP_VIDEOS") == "1");
+    CHECK_FALSE(migrated.contains("RECOMP_PAD_SCRIPT"));
 }
 
 TEST_CASE("Under Wine the game's paths are on drive Z:") {
