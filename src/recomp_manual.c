@@ -157,6 +157,7 @@ static const recomp_func_t g_itrace_wrappers[ITRACE_SLOTS] = {
  *
  *   RECOMP_BLACK_SKIP_MOVIES=1   end every movie at its first frame, except
  *                                a looping one
+ *   RECOMP_BLACK_SKIP_STARTUP_VIDEOS=1   end only the EA/Criterion logo movie
  *   Escape / Enter / Space, or controller A / B / Start:
  *     startup logos end on one distinct press; other non-looping movies show
  *     "Press again to skip" and require a released, second press.
@@ -167,13 +168,14 @@ static const recomp_func_t g_itrace_wrappers[ITRACE_SLOTS] = {
  * [0x002D45F0] + 0x2026C: its first field is the movie object, +0x198 the
  * request flags.
  *
- * The automatic skip variable remains a lab convenience. Wrapping needs
+ * Automatic skips use movie completion, never simulated input. Wrapping needs
  * tools.recomp --exclude-manual on this file (scripts/regen-and-build.ps1
  * passes it). The first-frame open and normal decoder teardown remain native.
  */
 extern void sub_000C4570_gen(void);
 
 static int movie_skip_all = -1;
+static int movie_skip_startup = -1;
 static int black_pc_ram_span(uint32_t address, uint32_t bytes);
 static void black_movie_skip_font(void);
 
@@ -313,14 +315,23 @@ void sub_000C4570(void)
             fprintf(stderr, "[MOVIE] RECOMP_BLACK_SKIP_MOVIES: every movie "
                             "but a looping one ends at its first frame\n");
     }
+    if (movie_skip_startup < 0) {
+        const char *env = getenv("RECOMP_BLACK_SKIP_STARTUP_VIDEOS");
+        movie_skip_startup = env && *env && *env != '0';
+        if (movie_skip_startup)
+            fprintf(stderr, "[MOVIE] RECOMP_BLACK_SKIP_STARTUP_VIDEOS: "
+                            "startup logos end at their first frame\n");
+    }
     session = black_movie_skip_sync(movie_va);
     by_input = session && pc_movie_skip_take_request(session);
-    by_environment = session && movie_skip_all;
+    by_environment = session && (movie_skip_all ||
+        (movie_skip_startup && movie_skip_identity.kind == PC_MOVIE_SKIP_INTRO));
     if (by_input || by_environment) {
         uint8_t *movie = (uint8_t *)((uintptr_t)g_xbox_mem_offset + movie_va);
         movie[0x62] = 1;
         fprintf(stderr, "[MOVIE] skipped (%s): movie 0x%08X decoder 0x%08X "
-                "stem %s caller 0x%08X\n", by_input ? "player" : "RECOMP_BLACK_SKIP_MOVIES",
+                "stem %s caller 0x%08X\n", by_input ? "player" :
+                movie_skip_all ? "RECOMP_BLACK_SKIP_MOVIES" : "RECOMP_BLACK_SKIP_STARTUP_VIDEOS",
                 movie_va, *(uint32_t *)(movie + 0x4C), movie_skip_identity.stem,
                 black_pc_ram_span(g_esp, 4u) ? GUEST32(g_esp) : 0u);
         fflush(stderr);

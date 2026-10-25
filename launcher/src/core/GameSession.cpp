@@ -314,12 +314,8 @@ std::map<std::string, std::string> gameEnvironment(const ProjectLayout& project,
     if (settings.skipMovies) {
         env["RECOMP_BLACK_SKIP_MOVIES"] = "1";
     }
-    if (settings.advanceMenus) {  // presses A every 3 seconds from 20 s to 65 s, through the intro menus
-        std::string presses;
-        for (int seconds = 20; seconds <= 65; seconds += 3) {
-            presses += (presses.empty() ? "" : ",") + std::to_string(seconds * 1000) + ":A/600";
-        }
-        env["RECOMP_PAD_SCRIPT"] = presses;
+    if (settings.skipStartupVideos) {
+        env["RECOMP_BLACK_SKIP_STARTUP_VIDEOS"] = "1";
     }
     return env;
 }

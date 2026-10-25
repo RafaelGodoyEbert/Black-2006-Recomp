@@ -370,13 +370,13 @@ int applyVideoIni(Settings& s, std::string_view text) {
 
 std::string settingsJson(const Settings& s) {
     Json json;
-    json["SettingsVersion"] = 13;
+    json["SettingsVersion"] = 14;
     json["GpuRenderer"] = s.gpuRenderer;
     json["Smooth60"] = s.smooth60;
     json["SmoothHz"] = s.smoothHz;
     json["Threads"] = s.threads;
     json["SkipMovies"] = s.skipMovies;
-    json["AdvanceMenus"] = s.advanceMenus;
+    json["SkipStartupVideos"] = s.skipStartupVideos;
     json["InfiniteAmmo"] = s.infiniteAmmo;
     json["SilverWeaponMode"] = s.silverWeaponMode;
     json["Textures"] = s.textures;
@@ -435,7 +435,10 @@ Settings settingsFromJson(std::string_view text) {
     readField(json, "SmoothHz", s.smoothHz, [](long long v) { return contains(choices::kSmoothHz, v); });
     readField(json, "Threads", s.threads, [](long long v) { return v >= 1 && v <= 64; });
     readField(json, "SkipMovies", s.skipMovies, kAny);
-    readField(json, "AdvanceMenus", s.advanceMenus, kAny);
+    // Replace legacy timed controller presses with direct logo-video skipping.
+    // An explicit new setting wins, including false or an invalid value.
+    readField(json, json.contains("SkipStartupVideos") ? "SkipStartupVideos" : "AdvanceMenus", s.skipStartupVideos,
+              kAny);
     readField(json, "InfiniteAmmo", s.infiniteAmmo, kAny);
     readField(json, "SilverWeaponMode", s.silverWeaponMode, among(choices::kSilverWeapons));
     readField(json, "Textures", s.textures, among(choices::kTextures));

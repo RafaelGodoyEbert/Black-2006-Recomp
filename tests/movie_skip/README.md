@@ -44,6 +44,10 @@ libraries, then runs all seven CTest regressions in Release and Debug.
   the caption. Cue expiry restores the exact underlying page pixels. Unrelated
   video settings and input services stay inactive through small harness stubs,
   without loading retail assets or writing settings files.
+- `movie-wrapper` also checks direct startup-only skipping, all four combinations
+  of startup/all-movie settings, environment parsing, case-insensitive logo names,
+  story/credits/unknown-movie playback, opening/loop/replacement guards, and guest
+  ABI/FP preservation without input requests.
 - `movie-wrapper` uses synthetic guest memory and a pump stub to check logo and
   cutscene classification, subtitle session/stem forwarding, ownership, EOF,
   reopen, decoder replacement, looping

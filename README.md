@@ -141,6 +141,13 @@ holding a button cannot confirm. The hint also works with native menus disabled
 and stays at the window corner on ultrawide displays. Looping menu backgrounds
 keep playing normally. See the [movie skip tests](tests/movie_skip/README.md).
 
+**Settings > Game > Skip Startup Videos** automatically ends the EA/Criterion
+logo video through the game's movie-completion code. It replaces **Skip Startup
+Menus** and carries over that option's saved choice. It sends no controller or
+keyboard presses, so menus wait for you and story cutscenes still play. The
+separate **Skip Movies** option continues to skip all non-looping videos. Both
+options default to Off; restart the game after changing them.
+
 The added **Crosshair** and **Hit Markers** are independent options in the launcher's
 **Settings > Gameplay** and the in-game **Options > Gameplay Settings** page,
 including while paused. Both default to **Off**. Crosshair Off keeps BLACK's
@@ -290,7 +297,7 @@ commit and push there, then commit the new submodule commit in this repository.
 in the launcher. The launcher itself needs only CMake and Visual Studio; its Vulkan headers are a submodule,
 so no Vulkan SDK is needed.
 
-Leave **Settings > Game > Skip movies** and **Skip startup menus** off to watch the full opening and navigate
+Leave **Settings > Game > Skip movies** and **Skip startup videos** off to watch the full opening and navigate
 manually. Local settings live in `local/`
 and diagnostic logs in `reports/`. Save-related data uses `save/` as well as
 `game/UDATA/` and `game/TDATA/` through the native partition mapping. Close the

@@ -20,7 +20,7 @@ struct Settings {
     int smoothHz = 0;  // with smooth60: 0 runs the game clock at 60 steps per second, else 120 or 240
     int threads = 4;
     bool skipMovies = false;
-    bool advanceMenus = false;
+    bool skipStartupVideos = false;
     bool infiniteAmmo = false;
     std::string silverWeaponMode = "native";  // native, force-on, force-off
     std::string textures = "original";        // original, hd-pack (the texture_pack_hd folder)
