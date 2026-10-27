@@ -476,7 +476,7 @@ static int same_settings(const PcVideoSettings *a, const PcVideoSettings *b)
            a->ray_tracing == b->ray_tracing && a->crosshair == b->crosshair && a->hitmarkers == b->hitmarkers &&
            a->lod_distance == b->lod_distance && a->bullet_damage == b->bullet_damage &&
            a->enemy_health == b->enemy_health && a->headshot_instakill == b->headshot_instakill &&
-           a->optional_secondaries == b->optional_secondaries && a->split_screen == b->split_screen && a->render_override_w == b->render_override_w && a->render_override_h == b->render_override_h;
+           a->optional_secondaries == b->optional_secondaries && a->aim_hold == b->aim_hold && a->split_screen == b->split_screen && a->render_override_w == b->render_override_w && a->render_override_h == b->render_override_h;
 }
 
 static void clear_env(void)
@@ -574,7 +574,7 @@ static void test_model(void)
     CHECK(strstr(text, "crosshair=t\n") && strstr(text, "hitmarkers=off\n") && strstr(text, "split_screen=on\n"));
     CHECK(strstr(text, "motion_blur=off\n") && strstr(text, "action_blur=off\n"));
     CHECK(strstr(text, "optional_secondaries=on\n"));
-    CHECK(pc_video_parse(text, &t) == 28);
+    CHECK(pc_video_parse(text, &t) == 29);
     CHECK(same_settings(&s, &t));
     pc_video_defaults(&t);
     CHECK(pc_video_parse("[video]\r\n; comment\r\ninternal_height=999\r\nwindow_width=1600\r\nbogus=1\r\nfov=500\r\nfov=72.5\r\n"
@@ -599,7 +599,7 @@ static void test_optional_secondaries(void)
         s.optional_secondaries = choice;
         CHECK(pc_video_format(&s, text, sizeof(text)) > 0);
         pc_video_defaults(&t);
-        CHECK(pc_video_parse(text, &t) == 28 && t.optional_secondaries == choice);
+        CHECK(pc_video_parse(text, &t) == 29 && t.optional_secondaries == choice);
         CHECK(pc_video_parse("optional_secondaries=invalid\noptional_secondaries=1\n", &t) == 0);
         CHECK(t.optional_secondaries == choice);
     }
@@ -675,7 +675,7 @@ static void test_tuning_settings(void)
             CHECK(*(unsigned *)((char *)&s + choice->offset) == choice->values[i]);
             CHECK(pc_video_format(&s, text, sizeof(text)) < sizeof(text));
             pc_video_defaults(&t);
-            CHECK(pc_video_parse(text, &t) == 28 && same_settings(&s, &t));
+            CHECK(pc_video_parse(text, &t) == 29 && same_settings(&s, &t));
             CHECK(pc_video_set(&s));
             CHECK(pc_video_menu_row_value(choice->row, value, sizeof(value)) > 0 && strchr(value, 'X'));
             CHECK(pc_video_menu_row_change(choice->row, 1)); pc_video_get(&t);
@@ -737,7 +737,7 @@ static void test_ambient_occlusion(void)
             CHECK(s.ao_method == method && s.ao_quality == quality);
             CHECK(pc_video_format(&s, text, sizeof(text)) < sizeof(text));
             pc_video_defaults(&t);
-            CHECK(pc_video_parse(text, &t) == 28 && same_settings(&s, &t));
+            CHECK(pc_video_parse(text, &t) == 29 && same_settings(&s, &t));
         }
     }
     CHECK(pc_video_parse("ao_method=GTAO\nao_quality=ULTRA\n", &s) == 2);
@@ -1323,6 +1323,7 @@ static void test_native_row_services(void)
     pc_video_test_reset(ini_path); pc_video_get(&before);
     generation = pc_video_generation();
     for (row = 0; row < PCV_ROW_RESET; row++) {
+        if (row == PCV_ROW_AIM_MODE) continue; /* aim mode has no environment pin */
         CHECK(pc_video_menu_row_locked(row));
         CHECK(strstr(pc_video_menu_row_help(row), "fixed by an environment variable"));
         CHECK(!pc_video_menu_row_change(row, 1));
@@ -1390,12 +1391,83 @@ static void test_dlss_sizes(void)
     CHECK(pc_video_parse("aa=dlss_performance\n", &s) == 1 && s.aa == PCV_AA_DLSS_PERFORMANCE);
 }
 
+
+static int aim_blocked;
+static int aim_blocked_query(void) { return aim_blocked; }
+static void aim_input_reset(int hold)
+{
+    _putenv_s("RECOMP_BLACK_INPUT_MODE", "auto");
+    _putenv_s("RECOMP_BLACK_BIND_AIM", "Mouse2");
+    pc_input_test_reset();
+    pc_input_test_set_time(100000);
+    pc_input_set_control_resolver(test_aim_control);
+    pc_input_set_aim_hold_mode(hold);
+    aim_blocked = 0;
+    pc_input_set_gameplay_blocked_query(aim_blocked_query);
+    pc_input_gameplay_tick();
+}
+static void aim_press_ack(void)
+{
+    uint64_t token;
+    pc_input_mouse_button_event(1, 1);
+    token = pc_input_native_sample_begin();
+    CHECK(aim_test_report() == 0xff);
+    pc_input_native_sample_end(token, 1u << 22);
+}
+static void test_aim_hold_input(void)
+{
+    aim_input_reset(0); aim_press_ack();
+    pc_input_frame_complete(); pc_input_frame_complete();
+    CHECK(!pc_input_gameplay_active()); CHECK(aim_test_report() == 0);
+    pc_input_mouse_button_event(1, 0);
+    aim_input_reset(1); aim_press_ack();
+    pc_input_frame_complete(); pc_input_frame_complete();
+    CHECK(!pc_input_gameplay_active()); CHECK(aim_test_report() == 0xff);
+    pc_input_mouse_button_event(1, 0); CHECK(aim_test_report() == 0);
+    aim_input_reset(1); aim_press_ack();
+    aim_blocked = 1; pc_input_frame_complete(); CHECK(aim_test_report() == 0);
+    aim_blocked = 0; pc_input_gameplay_tick(); CHECK(aim_test_report() == 0);
+    aim_input_reset(1); aim_press_ack();
+    pc_input_focus_event(0); CHECK(aim_test_report() == 0);
+    pc_input_focus_event(1); pc_input_gameplay_tick(); CHECK(aim_test_report() == 0);
+    pc_input_set_gameplay_blocked_query(NULL); pc_input_set_aim_hold_mode(0);
+    pc_input_test_reset(); _putenv_s("RECOMP_BLACK_BIND_AIM", "");
+}
+
+static void test_aim_mode_settings(void)
+{
+    PcVideoSettings s, t;
+    char text[2048], value[32];
+    unsigned mode;
+    fresh(); pc_video_get(&s); CHECK(s.aim_hold == 0);
+    CHECK(pc_video_parse("[video]\nvsync=0\n", &s) == 1 && !s.aim_hold);
+    for (mode = 0; mode <= 1; ++mode) {
+        s.aim_hold = mode; CHECK(pc_video_format(&s, text, sizeof(text)) > 0);
+        CHECK(strstr(text, mode ? "aim_mode=hold\n" : "aim_mode=toggle\n"));
+        pc_video_defaults(&t); CHECK(pc_video_parse(text, &t) == 29 && t.aim_hold == mode);
+        CHECK(pc_video_parse("aim_mode=invalid\naim_mode=1\n", &t) == 0 && t.aim_hold == mode);
+    }
+    CHECK(pc_video_parse("AIM_MODE = HoLd\n", &s) == 1 && s.aim_hold == 1);
+    fresh(); CHECK(!strcmp(pc_video_menu_row_label(PCV_ROW_AIM_MODE), "AIM MODE"));
+    CHECK(pc_video_menu_row_value(PCV_ROW_AIM_MODE, value, sizeof(value)) && !strcmp(value, "TOGGLE"));
+    CHECK(pc_video_menu_row_change(PCV_ROW_AIM_MODE, 1));
+    pc_video_get(&s); CHECK(s.aim_hold == 1);
+    CHECK(pc_video_menu_row_value(PCV_ROW_AIM_MODE, value, sizeof(value)) && !strcmp(value, "HOLD"));
+    pc_video_test_reset(ini_path); pc_video_get(&s); CHECK(s.aim_hold == 1);
+    s.aim_hold = 2; CHECK(!pc_video_set(&s));
+    CHECK(pc_video_menu_row_change(PCV_ROW_AIM_MODE, -1));
+    pc_video_test_reset(ini_path); pc_video_get(&s); CHECK(s.aim_hold == 0);
+    fresh();
+}
+
 int main(void)
 {
     DWORD n = GetTempPathA(MAX_PATH, ini_path);
     CHECK(n > 0 && n < MAX_PATH);
     snprintf(ini_path + n, 32, "pc_video_test_%lu.ini", (unsigned long)GetCurrentProcessId());
     test_model();
+    test_aim_mode_settings();
+    test_aim_hold_input();
     test_optional_secondaries();
     test_tuning_settings();
     test_sustained_fire_survives_gameplay_gap();

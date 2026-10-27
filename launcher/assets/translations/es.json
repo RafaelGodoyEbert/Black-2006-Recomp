@@ -481,5 +481,9 @@
   "Mouse button 4": "Botón 4 del ratón",
   "Mouse button 5": "Botón 5 del ratón",
   "Mouse wheel up": "Rueda del ratón arriba",
-  "Mouse wheel down": "Rueda del ratón abajo"
+  "Mouse wheel down": "Rueda del ratón abajo",
+  "AIM MODE": "MODO DE APUNTADO",
+  "TOGGLE": "ALTERNAR",
+  "HOLD": "MANTENER",
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternar conserva el apuntado original. Mantener apunta solo mientras se mantiene pulsado el botón de apuntar."
 }

@@ -75,3 +75,26 @@ TEST_CASE("Gameplay settings persist independent opt-in choices") {
     reopened.reload();
     CHECK(reopened.page().rows[secondaries].value == "ON");
 }
+
+TEST_CASE("Gameplay aim mode survives reopening and can return to toggle") {
+    const black::tests::TempFolder folder;
+    folder.write("CMakeLists.txt", "\n");
+    folder.write("scripts/generate.py", "\n");
+    const auto project = black::core::ProjectLayout::locate(folder.path());
+    REQUIRE(project.has_value());
+    black::app::setLanguage("en-US");
+    black::app::SettingsFlow flow(*project);
+    flow.handle({row(flow.page(), "GAMEPLAY"), 0});
+    auto aim = row(flow.page(), "AIM MODE");
+    CHECK(flow.page().rows[aim].value == "TOGGLE");
+    flow.handle({aim, 1});
+    CHECK(flow.page().rows[aim].value == "HOLD");
+    CHECK(black::core::loadSettings(*project).aimMode == "hold");
+    black::app::SettingsFlow reopened(*project);
+    reopened.handle({row(reopened.page(), "GAMEPLAY"), 0});
+    aim = row(reopened.page(), "AIM MODE");
+    CHECK(reopened.page().rows[aim].value == "HOLD");
+    reopened.handle({aim, -1});
+    CHECK(reopened.page().rows[aim].value == "TOGGLE");
+    CHECK(black::core::loadSettings(*project).aimMode == "toggle");
+}

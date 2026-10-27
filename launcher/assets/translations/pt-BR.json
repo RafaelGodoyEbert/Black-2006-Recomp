@@ -481,5 +481,9 @@
   "Mouse button 4": "Botão 4 do mouse",
   "Mouse button 5": "Botão 5 do mouse",
   "Mouse wheel up": "Roda do mouse para cima",
-  "Mouse wheel down": "Roda do mouse para baixo"
+  "Mouse wheel down": "Roda do mouse para baixo",
+  "AIM MODE": "MODO DE MIRA",
+  "TOGGLE": "ALTERNAR",
+  "HOLD": "SEGURAR",
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternar mantém a mira original. Segurar mira apenas enquanto o botão de mira estiver pressionado."
 }

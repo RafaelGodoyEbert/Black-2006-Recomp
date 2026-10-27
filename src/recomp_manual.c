@@ -4561,6 +4561,52 @@ void black_controls_install(void)
 }
 /* END BLACK_PC_CONTROLS */
 
+/* BEGIN BLACK_PC_AIM
+ * Retail 1EC450 reads action slot 16 from this input component's decoded pad.
+ * Its aim intent is self+45 and its toggle latch is self+104. In Hold mode,
+ * seed both from the current level before the original runs: a held button
+ * cannot toggle the intent again, including on the separate sniper path.
+ * All subsequent native weapon, zoom and animation rules still run unchanged.
+ * Toggle mode leaves both bytes entirely to the original. This also follows
+ * remapped buttons and each split-screen player's own input component.
+ * --exclude-manual preserves the original as sub_001EC450_gen.
+ */
+extern void sub_001EC450_gen(void);
+int black_pc_input_resolver(int slot);
+
+void sub_001EC450(void)
+{
+    const uint32_t self = g_ecx;
+    const unsigned csr = _mm_getcsr();
+    fenv_t environment;
+    PcVideoSettings video;
+    fegetenv(&environment);
+    fesetenv(FE_DFL_ENV);
+    _mm_setcsr(0x1F80u);
+    pc_video_get(&video);
+    pc_input_set_aim_hold_mode(video.aim_hold != 0);
+    if (video.aim_hold && black_pc_ram_span(self, 0x105u)) {
+        const int control = black_pc_input_resolver(16);
+        const uint32_t input = GUEST32(self + 0xA8u);
+        if (black_pc_ram_span(input, 0x10u)) {
+            const uint32_t decoded = GUEST32(input + 0xCu);
+            if (black_pc_ram_span(decoded, 0xB4u)) {
+                float value = 0.0f;
+                int held;
+                if (control >= 0 && control < 28)
+                    memcpy(&value, (const void *)((uintptr_t)g_xbox_mem_offset + decoded + 0x44u + 4u * (unsigned)control), 4u);
+                held = value >= 0.1f && value > 0.0f;
+                GUEST8(self + 0x45u) = (uint8_t)held;
+                GUEST8(self + 0x104u) = (uint8_t)held;
+            }
+        }
+    }
+    fesetenv(&environment);
+    _mm_setcsr(csr);
+    sub_001EC450_gen();
+}
+/* END BLACK_PC_AIM */
+
 /* Called from the OHCI thread: a control id 0..27, -1 for "none".
  * Until the live action map is ready, read the default preset from the user's
  * loaded XBE. No retail control table is embedded in the host source. */
