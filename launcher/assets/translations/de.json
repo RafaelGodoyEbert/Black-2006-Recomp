@@ -481,5 +481,9 @@
   "Mouse button 4": "Maustaste 4",
   "Mouse button 5": "Maustaste 5",
   "Mouse wheel up": "Mausrad hoch",
-  "Mouse wheel down": "Mausrad runter"
+  "Mouse wheel down": "Mausrad runter",
+  "AIM MODE": "ZIELMODUS",
+  "TOGGLE": "UMSCHALTEN",
+  "HOLD": "HALTEN",
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Umschalten behält das ursprüngliche Zielverhalten bei. Halten zielt nur, solange die Zieltaste gedrückt wird."
 }

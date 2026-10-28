@@ -481,5 +481,9 @@
   "Mouse button 4": "Bouton 4 de la souris",
   "Mouse button 5": "Bouton 5 de la souris",
   "Mouse wheel up": "Molette vers le haut",
-  "Mouse wheel down": "Molette vers le bas"
+  "Mouse wheel down": "Molette vers le bas",
+  "AIM MODE": "MODE DE VISÉE",
+  "TOGGLE": "BASCULE",
+  "HOLD": "MAINTENIR",
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Bascule conserve la visée d’origine. Maintenir permet de viser uniquement tant que le bouton de visée est maintenu."
 }

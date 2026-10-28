@@ -481,5 +481,9 @@
   "Mouse button 4": "Tasto 4 del mouse",
   "Mouse button 5": "Tasto 5 del mouse",
   "Mouse wheel up": "Rotella su",
-  "Mouse wheel down": "Rotella giù"
+  "Mouse wheel down": "Rotella giù",
+  "AIM MODE": "MODALITÀ MIRA",
+  "TOGGLE": "ALTERNATA",
+  "HOLD": "TIENI PREMUTO",
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternata mantiene il comportamento originale della mira. Tieni premuto mira solo mentre il pulsante di mira resta premuto."
 }

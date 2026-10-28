@@ -136,7 +136,7 @@ TEST_CASE("video.ini round-trips and skips what the game would skip") {
     settings.vsync = false;
     settings.actionBlur = "off";
     Settings read;
-    CHECK(applyVideoIni(read, videoIni(settings)) == 27);
+    CHECK(applyVideoIni(read, videoIni(settings)) == 28);
     CHECK(videoIni(read) == videoIni(settings));
     CHECK(read.actionBlur == "off");
 
@@ -193,4 +193,34 @@ TEST_CASE("Saving writes all three files, and video.ini and controls.ini win whe
     CHECK(loaded.anisotropy == 2);
     CHECK(loaded.optional_secondaries == "off");
     CHECK(loaded.bindings == bindings::Overrides{{"RELOAD", "Y"}});
+}
+
+TEST_CASE("Aim mode validates defaults and persists through JSON, INI and files") {
+    CHECK(defaultSettings().aimMode == "toggle");
+    CHECK(settingsFromJson(R"({"Schema":3})").aimMode == "toggle");
+    for (const std::string_view bad : {R"({"AimMode":"invalid"})", R"({"AimMode":true})", R"({"AimMode":1})"})
+        CHECK(settingsFromJson(bad).aimMode == "toggle");
+    const black::tests::TempFolder folder;
+    folder.write("CMakeLists.txt", "\n");
+    folder.write("scripts/generate.py", "\n");
+    const auto project = ProjectLayout::locate(folder.path());
+    REQUIRE(project.has_value());
+    for (const std::string_view mode : choices::kAimModes) {
+        Settings wanted = defaultSettings();
+        wanted.aimMode = mode;
+        CHECK(settingsFromJson(settingsJson(wanted)).aimMode == mode);
+        Settings ini = defaultSettings();
+        CHECK(applyVideoIni(ini, videoIni(wanted)) > 0);
+        CHECK(ini.aimMode == mode);
+        CHECK(applyVideoIni(ini, "aim_mode=invalid\naim_mode=1\n") == 0);
+        CHECK(ini.aimMode == mode);
+        REQUIRE(saveSettings(*project, wanted).ok());
+        CHECK(fileText(folder.path() / "local/video.ini").find("aim_mode=" + std::string(mode)) != std::string::npos);
+        CHECK(loadSettings(*project).aimMode == mode);
+    }
+    Settings legacy = defaultSettings();
+    CHECK(applyVideoIni(legacy, "[video]\nvsync=0\n") == 1);
+    CHECK(legacy.aimMode == "toggle");
+    CHECK(applyVideoIni(legacy, "AIM_MODE = HoLd\n") == 1);
+    CHECK(legacy.aimMode == "hold");
 }

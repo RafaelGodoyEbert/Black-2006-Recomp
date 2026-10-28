@@ -243,6 +243,7 @@ std::string videoIni(const Settings& s) {
     line("bullet_damage", std::to_string(s.bullet_damage));
     line("enemy_health", std::to_string(s.enemy_health));
     line("headshot_instakill", s.headshot_instakill);
+    line("aim_mode", s.aimMode);
     return text;
 }
 
@@ -337,6 +338,8 @@ int applyVideoIni(Settings& s, std::string_view text) {
             pick(choices::kOnOff, s.hitmarkers);
         } else if (key == "optional_secondaries") {
             pick(choices::kOnOff, s.optional_secondaries);
+        } else if (key == "aim_mode") {
+            pick(choices::kAimModes, s.aimMode);
         } else if (key == "lod_distance") {
             if (number && contains(choices::kLodDistances, *number)) {
                 s.lod_distance = static_cast<int>(*number);
@@ -403,6 +406,7 @@ std::string settingsJson(const Settings& s) {
     json["BulletDamage"] = s.bullet_damage;
     json["EnemyHealth"] = s.enemy_health;
     json["HeadshotInstakill"] = s.headshot_instakill;
+    json["AimMode"] = s.aimMode;
     json["WindowMode"] = s.windowMode;
     json["ScaleMode"] = s.scaleMode;
     json["PresentFilter"] = s.presentFilter;
@@ -471,6 +475,7 @@ Settings settingsFromJson(std::string_view text) {
     readField(json, "BulletDamage", s.bullet_damage, [](long long v) { return contains(choices::kBulletDamages, v); });
     readField(json, "EnemyHealth", s.enemy_health, [](long long v) { return contains(choices::kEnemyHealths, v); });
     readField(json, "HeadshotInstakill", s.headshot_instakill, among(choices::kOnOff));
+    readField(json, "AimMode", s.aimMode, among(choices::kAimModes));
     readField(json, "WindowMode", s.windowMode, among(choices::kWindowModes));
     readField(json, "ScaleMode", s.scaleMode, among(choices::kScaleModes));
     readField(json, "PresentFilter", s.presentFilter, among(choices::kFilters));

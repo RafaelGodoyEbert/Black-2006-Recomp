@@ -58,6 +58,7 @@ struct Settings {
     std::string crosshair = "original";
     std::string hitmarkers = "off";
     std::string optional_secondaries = "off";  // mission completion still requires primary objectives
+    std::string aimMode = "toggle";            // toggle preserves the original aim behavior
     int lod_distance = 100;                    // percentages: 100 keeps the original distances/damage/health
     int bullet_damage = 100;
     int enemy_health = 100;
@@ -93,6 +94,7 @@ inline constexpr std::array<std::string_view, 5> kAoMethods = {"off", "ssao", "h
 inline constexpr std::array<std::string_view, 4> kAoQualities = {"low", "medium", "high", "ultra"};
 inline constexpr std::array<std::string_view, 5> kReflections = {"original", "low", "medium", "high", "ultra"};
 inline constexpr std::array<std::string_view, 2> kOnOff = {"off", "on"};
+inline constexpr std::array<std::string_view, 2> kAimModes = {"toggle", "hold"};
 inline constexpr std::array<std::string_view, 4> kCrosshairs = {"original", "cross", "t", "circle"};
 inline constexpr std::array<std::string_view, 3> kSilverWeapons = {"native", "force-on", "force-off"};
 inline constexpr std::array<std::string_view, 2> kTextures = {"original", "hd-pack"};

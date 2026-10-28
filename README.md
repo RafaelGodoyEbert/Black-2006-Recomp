@@ -82,6 +82,9 @@ view-frustum limits still apply. The same option is available in the in-game Gra
 
 In **Settings > Gameplay**, or the in-game Gameplay menu:
 
+- **Aim mode** offers **Toggle** (the original behavior and default) or **Hold** to aim only while the assigned
+  aim button is held. It follows keyboard, mouse and controller bindings, including scoped weapons, and saves
+  to `local/video.ini` as `aim_mode=toggle|hold`.
 - **Bullet damage** scales player bullets against enemies, from 0.5X to 10X. Enemy bullets keep their original damage.
 - **Enemy health** scales health at spawn, from 0.25X to 4X. Restart the mission to apply it to existing enemies.
 - **Instant-kill headshots** makes player head hits lethal, including helmeted enemies. Invulnerable enemies remain protected.

@@ -544,10 +544,18 @@ static void test_gameplay_pages(void)
         video_fresh(); reset_game(); pc_menu_test_reset(k_black_menu_default); tick(""); tick(page);
         for (i = 0; i < gameplay_row[variant]; i++) press(PCM_ACT_DOWN, page);
         press(PCM_ACT_CONFIRM, page);
-        CHECK(display_has("GAMEPLAY SETTINGS") && display_has("CROSSHAIR") && display_has("HIT MARKERS") &&
+        CHECK(display_has("GAMEPLAY SETTINGS") && display_has("AIM MODE") && display_has("CROSSHAIR") && display_has("HIT MARKERS") &&
               display_has("OPTIONAL SECONDARY OBJECTIVES"),
               "%s reaches the dedicated Gameplay page", page);
         pc_video_get(&s);
+        CHECK(s.aim_hold == 0 && display_has("TOGGLE"), "aim defaults to original toggle");
+        press(PCM_ACT_RIGHT, page); pc_video_get(&s);
+        CHECK(s.aim_hold == 1 && display_has("HOLD"), "Hold can be selected from the native Gameplay page");
+        pc_video_test_reset(g_video_ini); pc_video_get(&s);
+        CHECK(s.aim_hold == 1, "Hold survives a settings reload");
+        press(PCM_ACT_LEFT, page); pc_video_get(&s);
+        CHECK(s.aim_hold == 0 && display_has("TOGGLE"), "Toggle can be restored live");
+        press(PCM_ACT_DOWN, page);
         CHECK(s.crosshair == 0 && s.hitmarkers == 0 && s.optional_secondaries == 0, "all Gameplay additions default off");
         press(PCM_ACT_RIGHT, page);
         pc_video_get(&s);
@@ -1238,7 +1246,7 @@ static void test_tuning_default_migration(void)
     press(PCM_ACT_CONFIRM, "OptionsMenuXbox");
     CHECK(display_has("BULLET DAMAGE") && display_has("ENEMY HEALTH") && display_has("INSTANT-KILL HEADSHOTS"),
           "migrated Gameplay page exposes combat controls");
-    for (i = 0; i < 3; i++) press(PCM_ACT_DOWN, "OptionsMenuXbox");
+    for (i = 0; i < 4; i++) press(PCM_ACT_DOWN, "OptionsMenuXbox");
     press(PCM_ACT_RIGHT, "OptionsMenuXbox"); pc_video_get(&settings);
     CHECK(settings.bullet_damage == 150, "native Gameplay changes player bullet damage");
     press(PCM_ACT_DOWN, "OptionsMenuXbox"); press(PCM_ACT_LEFT, "OptionsMenuXbox"); pc_video_get(&settings);

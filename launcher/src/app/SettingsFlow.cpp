@@ -374,6 +374,8 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameplayOptions() {
                       {}};
     };
     return {
+        pick(tr("AIM MODE"), tr("Toggle keeps the original aim behavior. Hold aims only while the aim button is held."),
+             s.aimMode, {{"toggle", tr("TOGGLE")}, {"hold", tr("HOLD")}}),
         pick(tr("CROSSHAIR"),
              tr("A crosshair around the game's dot that opens as you move and fire. Off keeps the dot alone."),
              s.crosshair,
