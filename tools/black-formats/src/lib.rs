@@ -2,6 +2,8 @@
 //! These validate selected structures, not complete models or runtime behavior.
 use serde_json::{json, Value};
 use std::collections::HashSet;
+mod animation;
+mod models;
 
 pub type Result<T> = std::result::Result<T, String>;
 const MOVIES: u64 = 0x9592e53726307940;
@@ -80,6 +82,13 @@ impl<'a> Reader<'a> {
         } else {
             u64::from_le_bytes(a)
         })
+    }
+    fn float(&self, at: usize) -> Result<f32> {
+        let value = f32::from_bits(self.u32(at)?);
+        if !value.is_finite() {
+            return Err(format!("non-finite float at 0x{at:x}"));
+        }
+        Ok(value)
     }
     fn table(&self, at: usize, count: usize, stride: usize) -> Result<()> {
         self.range(at, count.checked_mul(stride).ok_or("table overflow")?)?;
@@ -296,6 +305,12 @@ fn awd(bytes: &[u8]) -> Result<Value> {
 /// Inspect the named file. A filename selects non-magical layouts; each selected
 /// reader still checks its version, required IDs, tables and payload bounds.
 pub fn inspect(bytes: &[u8], name: &str) -> Result<Value> {
+    let mut layout = inspect_layout(bytes, name)?;
+    animation::enrich(&Reader { bytes, big: false }, &mut layout)?;
+    Ok(layout)
+}
+
+fn inspect_layout(bytes: &[u8], name: &str) -> Result<Value> {
     let name = name.to_ascii_lowercase();
     let r = Reader { bytes, big: false };
     if name.ends_with(".awd") {

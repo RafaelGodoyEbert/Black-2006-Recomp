@@ -30,7 +30,22 @@ successful parse. PS2, big-endian AWD and undocumented versions are unsupported.
 ## Validation scope
 
 - Shared keyed dictionaries: header IDs, counts, table and value bounds, owning
-  bases, keys and raw reserved words. Values other than textures are not decoded.
+  bases, keys and raw reserved words. Known model, skeleton and bank values gain
+  a `resources` array; other values remain uninterpreted.
+- MODEL version 0x23: 28-byte buffer records, 48-byte triangle-strip descriptors,
+  24/28/36-byte vertex strides, index spans, referenced XYZ positions and bounds,
+  model matrices/name arrays, raw auxiliary index words, texture names and LOD
+  targets. Normals, UV/color/weight layouts, complete material programs and
+  skinning are not decoded. Position spans use file bounds; a model's complete
+  serialized length has not been established.
+- RCB version 21: relocation tables, the checked single-skeleton layout,
+  parent/flags records, finite 64-byte matrices and sorted joint-hash lookups.
+- Bank version 8: relocation tables, named state/root pairs, clip headers and
+  encoding-4 track boundaries. Joint counts come from matching local RCB IDs,
+  including embedded ANIMDICTIONA bundles; missing/ambiguous counts are errors.
+  Segmented tracks are walked recursively with a depth limit of 64. Constant
+  first-joint values are previewed, including four packed 24-bit float rotation
+  components. The tool does not play animations or decode state-graph opcodes.
 - DB, Globals, Unit/StUnit, LevelDat/StLevel and gun wrappers: the documented
   version and selected root fields. Opaque sections and placeholder fields are
   either reported raw or left uninterpreted.
@@ -49,7 +64,9 @@ successful parse. PS2, big-endian AWD and undocumented versions are unsupported.
 
 The synthetic tests contain no game assets. They exercise malformed dictionary
 tables, dictionary-relative addressing, AWD cycles/backlinks, bounded names,
-payload bounds and truncation. The documented retail scan is a separate,
+payload bounds and truncation, model buffer/descriptor bases and indexed
+positions, animation fixups, skeleton lookup bounds, track lengths, segment
+nesting and packed rotation components. The documented retail scan is a separate,
 locally reproduced check; no retail corpus is bundled or required by unit tests.
 
 See [validation.md](../../docs/file-formats/validation.md) for the tested corpus,

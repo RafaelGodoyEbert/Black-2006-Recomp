@@ -217,9 +217,9 @@ playing raw effect sends a second time. This avoids reversed duplicate channels
 and the clipping they caused. Native DSP output still takes precedence; see the
 [spatial audio regressions](tests/apu_spatial/README.md). To export speech or
 music from your own Xbox SSH/BKS banks, use the [audio extraction guide](docs/audio-extraction.md).
-The [Xbox asset-format documentation](docs/file-formats/README.md) covers the
-verified BIN/DB container layouts, dictionaries, textures and AWD sound banks,
-with a read-only Rust inspector and explicit coverage limits.
+The [Xbox asset-format documentation](docs/file-formats/README.md) covers BIN/DB
+containers, indexed model data, skeletons, animation track layouts, textures and
+AWD sound banks, with a read-only Rust inspector and explicit coverage limits.
 
 Audio pacing retains fractional frame time and recovers ordinary scheduling
 delays. The Windows output queues two packets before starting playback to provide

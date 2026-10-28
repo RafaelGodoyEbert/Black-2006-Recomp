@@ -7,12 +7,15 @@ downloads were inspected: all 52 BIN/DB samples and both AWD samples are
 byte-identical to files from that release. See [validation and sources](validation.md).
 
 - [BIN and DB containers, dictionaries and textures](bin-db.md)
+- [Model headers, indexed geometry and bone metadata](models.md)
+- [Skeletons, animation banks and track boundaries](animation.md)
 - [AWD wave dictionaries and audio payloads](awd.md)
 - [Evidence, coverage, reproduction and remaining work](validation.md)
 - [Read-only Rust inspector](../../tools/black-formats/README.md)
 
 These are partial specifications with usable, tested layouts. They describe
-resource lookup, container boundaries, texture metadata and audio extraction.
+resource lookup, container boundaries, model geometry metadata, skeletons,
+animation track boundaries, texture metadata and audio extraction.
 They do **not** constitute a complete model, animation, collision, scripting or
 asset-authoring specification. Unknown fields are identified rather than assigned
 invented meanings. A successful parse validates the structures listed here, not
@@ -47,8 +50,9 @@ cargo run --release --locked --manifest-path tools/black-formats/Cargo.toml -- g
 ```
 
 The inspector writes JSON Lines containing file sizes, SHA-256 hashes, recognized
-layouts, dictionary entries, texture metadata and AWD stream information. It reads
-assets without launching the game or modifying them. No retail data, generated
+layouts, dictionary entries, indexed model metadata, skeleton/clip data, texture
+metadata and AWD stream information. It reads assets without launching the game
+or modifying them. No retail data, generated
 game code or third-party decoder is included. Reports can contain resource names
 from the user's files; inspect them before sharing.
 

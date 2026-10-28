@@ -120,7 +120,9 @@ RCBS dictionary            0x000AA180
 The file can have an unaligned final size even though many internal structures
 are aligned to `0x80`. This is not a sequence of standard RenderWare chunk
 headers. Locating the `MODELS` dictionary is sufficient to enumerate model
-resources, but not to interpret their vertices, skinning, materials or topology.
+resources. The [model follow-up](models.md) now describes the verified headers,
+vertex/index records and bone metadata. Complete skinning and material programs
+remain unresolved.
 
 All 139 standalone DBs in the reference corpus use this version and pass root,
 dictionary, entry and texture bounds checks. Community support for other DB
