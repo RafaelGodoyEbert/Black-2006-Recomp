@@ -369,6 +369,13 @@ def title_hooks(name, body):
         body = replace_once(body, "if ((_fca <= _fcb)) goto loc_001DB18D;", "if (!(_fca > _fcb)) goto loc_001DB18D;")
     if name == "sub_0016EA90":
         body = replace_once(body, "MEMF(0x295CA8)", "black_osc_factor()")
+    if name == "sub_00077910":
+        # Linear and angular Verlet drag are per-update fractions. Keep
+        # their decay over real time when the coupled clock uses substeps.
+        for reg, offset in (("xmm1", "0x24"), ("xmm0", "0x20")):
+            native = f"{reg}.f[0] = {reg}.f[0] - MEMF(l_eax + {offset});"
+            hooked = native.replace("MEMF(", "black_physics_drag(MEMF(").replace(");", "));")
+            body = replace_once(body, native, hooked)
     if name == "sub_001BD3F0_gen":
         body, count = re.subn(r"(xmm[01]\.f\[0\] = xmm[01]\.f\[0\] \* )(MEMF\(l_esi \+ 0xCC\))", r"\1black_ctl_k(\2)", body)
         if count != 2:
@@ -985,6 +992,7 @@ def main():
     emit_idct("\n".join(path.read_text(encoding="utf-8") for path in chunks), root / "src/black_xmv_idct.inc")
     declarations = "\nextern float black_osc_factor(void);\nextern float black_ctl_k(float);\nextern void black_movie_tag_flip(uint32_t);\nextern void black_pickup_text_ready(uint32_t);\nextern void black_weapon_trace(uint32_t, uint32_t);\nextern void black_weapon_model_trace(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);\nextern void black_weapon_attachment_trace(uint32_t, uint32_t);\nextern void black_viewmodel_muzzle_gate(uint32_t);\nextern void black_test_weapon_loadout(uint32_t);\nextern void black_viewmodel_owner(uint32_t);\nextern uint32_t black_viewmodel_draw_begin(uint32_t);\nextern void black_viewmodel_draw_end(uint32_t);\nextern void black_viewmodel_constants(uint32_t);\nextern void black_viewmodel_muzzle_constants(uint32_t, uint32_t);\n"
     declarations += "extern int black_silver_weapon_flag(int);\n"
+    declarations += "extern float black_physics_drag(float);\n"
     declarations += "extern int black_infinite_ammo_flag(int);\n"
     declarations += "\nextern void black_test_stream_unit(uint32_t);\n"
     declarations += "\nextern void black_checkpoint_event(uint32_t, uint32_t);\n"

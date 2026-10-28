@@ -242,12 +242,155 @@ static void focus_regressions(Oracle &gpu, const std::string &hlsl) {
     std::cout << "PASS: actual focus/CoC shaders preserve background across minority occluders, acquire foreground subjects, reject invalid samples and retain smoothing/sky behavior\n";
 }
 
+// Equal ratios of subject/background distance must produce equal blur, including
+// the compressed depths of distant scenery. Exercise the final RGB pass too:
+// compiling a shader and selecting focus do not prove that DoF changes a picture.
+static void dof_regressions(Oracle &gpu, const std::string &hlsl) {
+    auto coc_shader = gpu.ps(hlsl, "coc_ps"), dof_shader = gpu.ps(hlsl, "dof_ps");
+    Tex coc = gpu.texture(DXGI_FORMAT_R32_FLOAT);
+    Cb c;
+    c.p0[0] = 1.0f / W; c.p0[1] = 1.0f / H; c.p0[2] = W; c.p0[3] = H;
+    c.p1[3] = 2.0f; c.p2[0] = .10f; // relative focus-distance response
+    for (float subject : {10.0f, 100.0f, 1000.0f, 10000.0f}) {
+        const float focus_depth = 1.0f - 1.0f / subject;
+        Tex focus = gpu.texture(DXGI_FORMAT_R32_FLOAT, &focus_depth, false, 1, 1);
+        std::vector<float> depths(W * H);
+        for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x) {
+            const float distance = x < W / 4 ? subject * .5f : x < W / 2 ? subject : x < W * 3 / 4 ? subject * 1.02f : subject * 2.0f;
+            depths[y * W + x] = 1.0f - 1.0f / distance;
+        }
+        Tex z = gpu.texture(DXGI_FORMAT_R32_FLOAT, depths.data(), false);
+        gpu.pass(coc_shader.Get(), coc, nullptr, nullptr, z.srv.Get(), c, focus.srv.Get());
+        auto mask = gpu.read<float>(coc); finite_mask(mask);
+        for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x) {
+            if (x < W * 3 / 4) require(mask[y * W + x] == 0, "DoF blurred weapon, focus plane or focus tolerance");
+            else require(mask[y * W + x] > .75f && mask[y * W + x] < .85f,
+                         "Background twice the focus distance lost its blur in compressed perspective depth");
+        }
+        std::vector<uint32_t> colours(W * H);
+        for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x)
+            colours[y * W + x] = ((x + y) & 1) ? 0x89CCCCCCu : 0x89333333u;
+        Tex scene = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM, colours.data(), false);
+        Tex mask8 = gpu.texture(DXGI_FORMAT_R8_UNORM), output = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM);
+        gpu.pass(coc_shader.Get(), mask8, nullptr, nullptr, z.srv.Get(), c, focus.srv.Get());
+        for (int level = 1; level <= 3; ++level) {
+            c.p1[0] = (level == 3 ? .030f : level == 2 ? .020f : .012f) * H;
+            c.p1[1] = level == 3 ? 32.0f : level == 2 ? 20.0f : 12.0f;
+            gpu.pass(dof_shader.Get(), output, scene.srv.Get(), mask8.srv.Get(), nullptr, c);
+            auto after = gpu.read<uint32_t>(output);
+            UINT changed = 0;
+            for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x) {
+                const size_t i = y * W + x;
+                require((after[i] >> 24) == 0x89, "DoF changed scene alpha");
+                if (x < W * 3 / 4) require(after[i] == colours[i], "DoF softened an in-focus pixel");
+                else changed += after[i] != colours[i];
+            }
+            require(changed > W * H / 8, "Enabled DoF preset produced no visible background blur");
+        }
+    }
+    const float sky_focus = 1.0f;
+    std::vector<float> sky(W * H, 1.0f);
+    Tex z = gpu.texture(DXGI_FORMAT_R32_FLOAT, sky.data(), false);
+    Tex focus = gpu.texture(DXGI_FORMAT_R32_FLOAT, &sky_focus, false, 1, 1);
+    gpu.pass(coc_shader.Get(), coc, nullptr, nullptr, z.srv.Get(), c, focus.srv.Get());
+    auto mask = gpu.read<float>(coc);
+    require(std::all_of(mask.begin(), mask.end(), [](float v) { return v == 0; }), "Sky-only first focus blurred");
+    std::cout << "PASS: CoC and all three DoF presets visibly blur distant backgrounds at four focus distances, preserving foreground/focus/alpha/sky\n";
+}
+
+static void colour_effect_regressions(Oracle &gpu, const std::string &hlsl) {
+    auto fxaa = gpu.ps(hlsl, "fxaa_ps"), sharp = gpu.ps(hlsl, "sharpen_ps"), ssaa = gpu.ps(hlsl, "ssaa_ps");
+    Cb c;
+    c.p0[0] = 1.0f / W; c.p0[1] = 1.0f / H; c.p0[2] = W; c.p0[3] = H;
+    std::vector<uint32_t> colours(W * H, 0x89777777u);
+    Tex flat = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM, colours.data(), false);
+    Tex out = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM);
+    for (ID3D11PixelShader *ps : {fxaa.Get(), sharp.Get()}) {
+        c.p2[2] = .9f;
+        gpu.pass(ps, out, flat.srv.Get(), nullptr, nullptr, c);
+        require(gpu.read<uint32_t>(out) == colours, "Colour filter changed a uniform field at the viewport boundary");
+    }
+    for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x)
+        colours[y * W + x] = x > y ? 0x89DDDDDDu : 0x89222222u;
+    Tex edge = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM, colours.data(), false);
+    gpu.pass(fxaa.Get(), out, edge.srv.Get(), nullptr, nullptr, c);
+    auto after = gpu.read<uint32_t>(out);
+    require(after != colours, "FXAA did not smooth a stair-step edge");
+    for (uint32_t pixel : after) require((pixel >> 24) == 0x89, "FXAA changed scene alpha");
+    for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x) {
+        const uint32_t v = 80 + (x % 4) * 25;
+        colours[y * W + x] = 0x89000000u | v | (v << 8) | (v << 16);
+    }
+    Tex detail = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM, colours.data(), false);
+    std::vector<uint32_t> previous = colours;
+    for (float amount : {.25f, .55f, .9f}) {
+        c.p2[2] = amount;
+        gpu.pass(sharp.Get(), out, detail.srv.Get(), nullptr, nullptr, c);
+        after = gpu.read<uint32_t>(out);
+        require(after != previous && after != colours, "Sharpening preset produced no distinct visible change");
+        for (uint32_t pixel : after) require((pixel >> 24) == 0x89, "Sharpening changed scene alpha");
+        previous = after;
+    }
+    for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x)
+        colours[y * W + x] = ((x + y) & 1) ? 0x89FFFFFFu : 0x89000000u;
+    Tex checker = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM, colours.data(), false);
+    Tex resolved = gpu.texture(DXGI_FORMAT_B8G8R8A8_UNORM, nullptr, true, W / 2, H / 2);
+    c.p3[2] = 2.0f / W; c.p3[3] = 2.0f / H;
+    gpu.pass(ssaa.Get(), resolved, checker.srv.Get(), nullptr, nullptr, c);
+    after = gpu.read<uint32_t>(resolved);
+    for (UINT y = 1; y < H / 2 - 1; ++y) for (UINT x = 1; x < W / 2 - 1; ++x) {
+        const uint32_t pixel = after[y * (W / 2) + x];
+        require((pixel >> 24) == 0x89 && (pixel & 255) >= 127 && (pixel & 255) <= 128,
+                "SSAA failed to resolve alternating texels to their mean");
+    }
+    std::cout << "PASS: FXAA smooths edges, three sharpening presets change detail, SSAA resolves alternating texels; flat fields/alpha preserved\n";
+}
+
+// Optional local-game evidence; this input is private and never a CI fixture.
+static void replay_dof_depth(Oracle &gpu, const std::string &hlsl, const char *path, bool legacy) {
+    std::ifstream file(path, std::ios::binary);
+    uint32_t width = 0, height = 0;
+    float focus_depth = -1;
+    file.read(reinterpret_cast<char *>(&width), sizeof(width));
+    file.read(reinterpret_cast<char *>(&height), sizeof(height));
+    file.read(reinterpret_cast<char *>(&focus_depth), sizeof(focus_depth));
+    require(file && width > 0 && width <= 16384 && height > 0 && height <= 16384, "Invalid DoF depth capture header");
+    require(focus_depth >= 0 && focus_depth <= 1, "Invalid captured focus");
+    std::vector<float> depth(size_t(width) * height);
+    file.read(reinterpret_cast<char *>(depth.data()), std::streamsize(depth.size() * sizeof(float)));
+    require(bool(file), "Truncated DoF depth capture");
+    Tex z = gpu.texture(DXGI_FORMAT_R32_FLOAT, depth.data(), false, width, height);
+    Tex focus = gpu.texture(DXGI_FORMAT_R32_FLOAT, &focus_depth, false, 1, 1);
+    Tex coc = gpu.texture(DXGI_FORMAT_R8_UNORM, nullptr, true, width, height);
+    Cb c; c.p0[0] = 1.0f / width; c.p0[1] = 1.0f / height; c.p0[2] = float(width); c.p0[3] = float(height);
+    c.p1[3] = legacy ? 140.0f : 2.0f; c.p2[0] = legacy ? .002f : .10f;
+    auto shader = gpu.ps(hlsl, "coc_ps");
+    gpu.pass(shader.Get(), coc, nullptr, nullptr, z.srv.Get(), c, focus.srv.Get());
+    const auto mask = gpu.read<uint8_t>(coc);
+    uint64_t nonzero = 0, sum = 0, total_background = 0, blurred_background = 0;
+    for (size_t i = 0; i < mask.size(); ++i) {
+        nonzero += mask[i] != 0; sum += mask[i];
+        if (depth[i] > focus_depth) { ++total_background; blurred_background += mask[i] != 0; }
+    }
+    std::cout << "REPLAY " << (legacy ? "legacy" : "relative") << " " << width << "x" << height
+              << " focus=" << std::setprecision(9) << focus_depth << " nonzero=" << nonzero << "/" << mask.size()
+              << " mean=" << double(sum) / double(mask.size()) << " max=" << unsigned(*std::max_element(mask.begin(), mask.end()))
+              << " blurred_background=" << blurred_background << "/" << total_background << "\n";
+}
+
 int main(int argc, char **argv) try {
-    require(argc == 2, "Usage: ao_warp_test.exe <kelvin_gpu_post.inc>");
+    require(argc == 2 || argc == 4 || argc == 5, "Usage: ao_warp_test.exe <kelvin_gpu_post.inc> [--dof-depth <capture_depth.bin> [--legacy]]");
     const std::string hlsl = source_hlsl(argv[1]);
     Oracle gpu(hlsl);
+    if (argc >= 4) {
+        require(std::string(argv[2]) == "--dof-depth" && (argc == 4 || std::string(argv[4]) == "--legacy"), "Invalid replay arguments");
+        replay_dof_depth(gpu, hlsl, argv[3], argc == 5);
+        return 0;
+    }
     planar_ao_regressions(gpu);
     focus_regressions(gpu, hlsl);
+    dof_regressions(gpu, hlsl);
+    colour_effect_regressions(gpu, hlsl);
     std::vector<float> flat(W * H, 8.0f / 9.0f), sky(W * H, 1.0f), corner(W * H);
     for (UINT y = 0; y < H; ++y) for (UINT x = 0; x < W; ++x)
         corner[y * W + x] = y < 8 ? 1.0f : x < W / 2 ? 6.7f / 7.7f : 8.0f / 9.0f;
