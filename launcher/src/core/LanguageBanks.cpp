@@ -5,10 +5,13 @@
 #include "core/Text.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace black::core {
 namespace fs = std::filesystem;
 namespace {
+
+constexpr std::array<std::string_view, 2> kFontNames = {"Big.bin", "Small.bin"};
 
 fs::path gameBankPath(const ProjectLayout& project) {
     return project.gameDirectory() / "language" / "strings" / "MainUS.bin";
@@ -44,6 +47,152 @@ Result<bool> replaceFile(const fs::path& source, const fs::path& target, bool ov
         return Error{"Could not write " + toUtf8(target)};
     }
     return true;
+}
+
+struct FileReplacement {
+    fs::path source;
+    fs::path target;
+};
+
+/// Stage the entire language change before replacing anything. Retain rollback copies until all renames succeed.
+Result<bool> replaceFiles(const std::vector<FileReplacement>& replacements) {
+    struct StagedFile {
+        fs::path target;
+        fs::path temporary;
+        fs::path previous;
+        bool temporaryCreated = false;
+        bool previousCreated = false;
+        bool installed = false;
+        bool keepPrevious = false;
+    };
+    std::vector<StagedFile> staged;
+    const auto cleanup = [&] {
+        std::error_code ignored;
+        for (const auto& file : staged) {
+            if (file.temporaryCreated) {
+                fs::remove(file.temporary, ignored);
+            }
+            if (file.previousCreated && !file.keepPrevious) {
+                fs::remove(file.previous, ignored);
+            }
+        }
+    };
+    for (const auto& replacement : replacements) {
+        const std::string sourceHash = hashOf(replacement.source);
+        if (sourceHash.empty()) {
+            cleanup();
+            return Error{"Could not read " + toUtf8(replacement.source)};
+        }
+        if (sourceHash == hashOf(replacement.target)) {
+            continue;
+        }
+        staged.push_back({replacement.target, replacement.target.string() + ".launcher-tmp",
+                          replacement.target.string() + ".launcher-rollback"});
+        auto& file = staged.back();
+        std::error_code error;
+        const bool temporaryExists = fs::exists(file.temporary, error);
+        if (error || temporaryExists) {
+            cleanup();
+            return Error{"Could not stage the language change: " + toUtf8(file.temporary)};
+        }
+        const bool previousExists = fs::exists(file.previous, error);
+        if (error || previousExists) {
+            cleanup();
+            return Error{"A previous language change needs recovery: " + toUtf8(file.previous)};
+        }
+        file.previousCreated = true;
+        fs::copy_file(file.target, file.previous, fs::copy_options::none, error);
+        if (!error) {
+            file.temporaryCreated = true;
+            fs::copy_file(replacement.source, file.temporary, fs::copy_options::none, error);
+        }
+        if (error) {
+            cleanup();
+            return Error{"Could not stage the language change for " + toUtf8(file.target)};
+        }
+    }
+    for (auto& file : staged) {
+        std::error_code error;
+        fs::rename(file.temporary, file.target, error);
+        if (error) {
+            std::string message = "Could not write " + toUtf8(file.target);
+            for (auto it = staged.rbegin(); it != staged.rend(); ++it) {
+                if (!it->installed) {
+                    continue;
+                }
+                std::error_code restoreError;
+                fs::rename(it->previous, it->target, restoreError);
+                if (restoreError) {
+                    it->keepPrevious = true;
+                    message += ". Restore the original from " + toUtf8(it->previous);
+                } else {
+                    it->previousCreated = false;
+                }
+            }
+            cleanup();
+            return Error{message};
+        }
+        file.installed = true;
+        file.temporaryCreated = false;
+    }
+    cleanup();
+    return true;
+}
+
+Result<std::vector<FileReplacement>> englishFontSources(const ProjectLayout& project,
+                                                        const EnglishFontHashes& retailHashes) {
+    std::vector<FileReplacement> sources;
+    for (std::size_t i = 0; i < kFontNames.size(); ++i) {
+        const auto fontName = kFontNames[i];
+        const fs::path english = preservedEnglishFontPath(project, fontName);
+        const fs::path game = gameFontPath(project, fontName);
+        std::error_code error;
+        if (!fs::is_regular_file(game, error)) {
+            continue;
+        }
+        if (hashOf(english) == retailHashes[i]) {
+            continue;
+        }
+        fs::path candidate;
+        if (hashOf(game) == retailHashes[i]) {
+            candidate = game;
+        } else {
+            const fs::path backupDir = game.parent_path() / "backups";
+            const std::string stem = fs::path(fontName).stem().string();
+            fs::directory_iterator entry(backupDir, error);
+            const fs::directory_iterator end;
+            while (!error && entry != end) {
+                if (entry->is_regular_file(error) && entry->path().filename().string().rfind(stem, 0) == 0 &&
+                    hashOf(entry->path()) == retailHashes[i]) {
+                    candidate = entry->path();
+                    break;
+                }
+                entry.increment(error);
+            }
+        }
+        if (candidate.empty()) {
+            return Error{"The retail English font " + std::string(fontName) +
+                         " is missing or unrecognised. Restore it from your disc at " + toUtf8(english) +
+                         " before changing the menu language."};
+        }
+        sources.push_back({candidate, english});
+    }
+    return sources;
+}
+
+std::vector<FileReplacement> languageFontReplacements(const ProjectLayout& project, std::string_view language) {
+    std::vector<FileReplacement> replacements;
+    for (const auto fontName : kFontNames) {
+        std::error_code error;
+        const fs::path target = gameFontPath(project, fontName);
+        if (!fs::is_regular_file(target, error)) {
+            continue;
+        }
+        const fs::path custom = languageFontPath(project, language, fontName);
+        replacements.push_back(
+            {fs::is_regular_file(custom, error) ? custom : preservedEnglishFontPath(project, fontName), target});
+    }
+    return replacements;
 }
 
 }  // namespace
@@ -83,82 +232,35 @@ fs::path languageFontPath(const ProjectLayout& project, std::string_view languag
     return project.localDirectory() / "language-banks" / fs::path(language) / "fonts" / fontName;
 }
 
-Result<bool> preserveEnglishFonts(const ProjectLayout& project) {
-    std::error_code error;
-    bool preservedAny = false;
-    for (const char* fontName : {"Big.bin", "Small.bin"}) {
-        const fs::path english = preservedEnglishFontPath(project, fontName);
-        const fs::path game = gameFontPath(project, fontName);
-        if (fs::is_regular_file(english, error)) {
-            continue;
-        }
-        if (!fs::is_regular_file(game, error)) {
-            continue;
-        }
-        fs::path candidate = game;
-        const fs::path backupDir = game.parent_path() / "backups";
-        if (fs::is_directory(backupDir, error)) {
-            const std::string stem = fs::path(fontName).stem().string();
-            for (const auto& entry : fs::directory_iterator(backupDir, error)) {
-                if (entry.is_regular_file() && entry.path().filename().string().rfind(stem, 0) == 0) {
-                    candidate = entry.path();
-                    break;
-                }
-            }
-        }
-        fs::create_directories(english.parent_path(), error);
-        auto res = replaceFile(candidate, english, false);
+Result<bool> preserveEnglishFonts(const ProjectLayout& project, const EnglishFontHashes& retailHashes) {
+    const auto sources = englishFontSources(project, retailHashes);
+    if (!sources) {
+        return sources.error();
+    }
+    for (const auto& source : sources.value()) {
+        std::error_code error;
+        fs::create_directories(source.target.parent_path(), error);
+        auto res = replaceFile(source.source, source.target, true);
         if (!res) {
             return res;
         }
-        preservedAny = true;
     }
-    return preservedAny;
+    return !sources.value().empty();
 }
 
-Result<bool> installLanguageFonts(const ProjectLayout& project, std::string_view language) {
-    std::error_code error;
-    const auto preserved = preserveEnglishFonts(project);
+Result<bool> installLanguageFonts(const ProjectLayout& project, std::string_view language,
+                                  const EnglishFontHashes& retailHashes) {
+    const auto preserved = preserveEnglishFonts(project, retailHashes);
     if (!preserved) {
         return preserved;
     }
-
-    for (const char* fontName : {"Big.bin", "Small.bin"}) {
-        const fs::path target = gameFontPath(project, fontName);
-        if (!fs::is_regular_file(target, error)) {
-            continue;
-        }
-
-        const fs::path custom = languageFontPath(project, language, fontName);
-        const fs::path english = preservedEnglishFontPath(project, fontName);
-
-        fs::path source;
-        if (fs::is_regular_file(custom, error)) {
-            source = custom;
-        } else if (fs::is_regular_file(english, error)) {
-            source = english;
-        }
-
-        if (!source.empty() && fs::is_regular_file(source, error)) {
-            if (hashOf(source) != hashOf(target)) {
-                auto res = replaceFile(source, target, true);
-                if (!res) {
-                    return res;
-                }
-            }
-        }
-    }
-    return true;
+    return replaceFiles(languageFontReplacements(project, language));
 }
 
 Result<bool> installLanguageBank(const ProjectLayout& project, std::string_view language,
-                                 std::string_view retailEnglishSha256) {
+                                 std::string_view retailEnglishSha256, const EnglishFontHashes& retailFontHashes) {
     if (std::find(choices::kLanguages.begin(), choices::kLanguages.end(), language) == choices::kLanguages.end()) {
         return Error{"Unknown menu language " + std::string(language)};
-    }
-    const auto fontResult = installLanguageFonts(project, language);
-    if (!fontResult) {
-        return fontResult;
     }
     const fs::path target = gameBankPath(project);
     const fs::path source = languageBankPath(project, language);
@@ -173,13 +275,13 @@ Result<bool> installLanguageBank(const ProjectLayout& project, std::string_view 
     if (!preserved) {
         return preserved;
     }
-    if (preserved.value() && language == "en-US") {
-        return true;
+    const auto fontResult = preserveEnglishFonts(project, retailFontHashes);
+    if (!fontResult) {
+        return fontResult;
     }
-    if (hashOf(source) == hashOf(target)) {
-        return true;
-    }
-    return replaceFile(source, target, true);
+    auto replacements = languageFontReplacements(project, language);
+    replacements.push_back({source, target});
+    return replaceFiles(replacements);
 }
 
 }  // namespace black::core
