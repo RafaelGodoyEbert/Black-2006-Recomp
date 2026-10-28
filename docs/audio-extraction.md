@@ -34,7 +34,8 @@ selected mono speech and stereo exports, and an independent synthetic PCM oracle
 across block boundaries with vgmstream r2117. The test banks are generated locally
 and contain no game audio.
 
-This supports the checked Xbox SSH/BKS format. Headerless BKS files, AWD sound
-banks, PS2 assets and movie audio require their own readers. Durations include
+This supports the checked Xbox SSH/BKS format. For AWD sound banks, see the
+[AWD specification and vgmstream commands](file-formats/awd.md). Headerless BKS
+files, PS2 assets and movie audio require their own readers. Durations include
 the game's end padding. Clip indices are bank identities, not subtitle timings;
 the script does not infer dialogue text or build an in-game subtitle system.
