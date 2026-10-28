@@ -471,6 +471,80 @@ unsigned black_sim_hz(void)
     return black_step_halved ? black_hz : 30;
 }
 
+/* BEGIN BLACK_PC_PHYSICS_TIMING
+ * The native Verlet solver stores displacement per update, not velocity.
+ * 0x77910 compares its squared linear/angular motion to world+0x390 and
+ * counts quiet updates against world+0x38C. BLACK's physics initialization
+ * at 0xDF4B0 overrides the library defaults with its own limits. Gravity is
+ * separately scaled by dt squared at the mission reset (0xDD2E0).
+ * Preserve the original speed threshold and settling duration
+ * when the coupled simulation clock uses smaller updates. Otherwise a
+ * falling ragdoll can sleep in midair after just 20 high-frequency updates.
+ * Change fresh title worlds after their final overrides, so mission resets
+ * cannot compound this or overwrite it with the original limits.
+ */
+extern void sub_000DF4B0_gen(void);
+
+/* 0x77910 also removes a fixed fraction of displacement on every update.
+ * Compose the same decay over the shorter updates; otherwise drag grows
+ * with frame rate and can itself make unsupported bodies appear stationary.
+ * All supported clock ratios are powers of two, so square roots suffice. */
+float black_physics_drag(float native_drag)
+{
+    const unsigned hz = black_sim_hz();
+    uint32_t bits;
+    float retained, result;
+    unsigned n;
+    fenv_t environment;
+    const unsigned csr = _mm_getcsr();
+    memcpy(&bits, &native_drag, sizeof(bits));
+    if ((hz != 60u && hz != 120u && hz != 240u) ||
+        bits == 0u || bits >= 0x3F800000u)
+        return native_drag;
+    fegetenv(&environment);
+    fesetenv(FE_DFL_ENV);
+    _mm_setcsr(0x1F80u);
+    retained = 1.0f - native_drag;
+    for (n = hz / 30u; n > 1u; n >>= 1u)
+        retained = sqrtf(retained);
+    result = 1.0f - retained;
+    fesetenv(&environment);
+    _mm_setcsr(csr);
+    return result;
+}
+
+void sub_000DF4B0(void)
+{
+    const uint32_t manager = GUEST32(g_esp + 4u);
+    uint32_t handle, world;
+    unsigned hz;
+    sub_000DF4B0_gen();
+    hz = black_sim_hz();
+    if (hz != 60u && hz != 120u && hz != 240u) return;
+    if (!black_pc_ram_span(manager, 4u)) return;
+    handle = GUEST32(manager);
+    if (!black_pc_ram_span(handle, 0x1Cu)) return;
+    world = GUEST32(handle + 0x18u);
+    if (black_pc_ram_span(world, 0x394u)) {
+        fenv_t environment;
+        const unsigned csr = _mm_getcsr();
+        uint32_t bits = GUEST32(world + 0x390u);
+        float threshold, ratio;
+        fegetenv(&environment);
+        fesetenv(FE_DFL_ENV);
+        _mm_setcsr(0x1F80u);
+        memcpy(&threshold, &bits, sizeof(threshold));
+        ratio = 30.0f / (float)hz;
+        threshold *= ratio * ratio;
+        memcpy(&bits, &threshold, sizeof(bits));
+        GUEST32(world + 0x390u) = bits;
+        GUEST32(world + 0x38Cu) *= hz / 30u;
+        fesetenv(&environment);
+        _mm_setcsr(csr);
+    }
+}
+/* END BLACK_PC_PHYSICS_TIMING */
+
 /* The game's per-frame Sleep(1) (every third frame) is a yield for a single-core console; skipped at a stepped rate of
  * 120 Hz or more, where it is a tenth of a frame. RECOMP_BLACK_IDLE_YIELD=1 keeps it. */
 int black_idle_yield_skip(void)

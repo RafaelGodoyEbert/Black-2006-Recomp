@@ -42,6 +42,17 @@ jobs:
             ctest --test-dir build-ambient-occlusion -C $configuration --output-on-failure
             if ($LASTEXITCODE -ne 0) { throw "$configuration regression failed" }
           }
+      - name: Build and run physics timing regressions
+        shell: pwsh
+        run: |
+          cmake -S tests/physics_timing -B build-physics-timing -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Physics timing configure failed' }
+          foreach ($configuration in 'Release', 'Debug') {
+            cmake --build build-physics-timing --config $configuration
+            if ($LASTEXITCODE -ne 0) { throw 'Physics timing build failed' }
+            ctest --test-dir build-physics-timing -C $configuration --output-on-failure
+            if ($LASTEXITCODE -ne 0) { throw 'Physics timing regression failed' }
+          }
       - name: Build and run shader manifest recovery regressions
         shell: pwsh
         run: |
