@@ -14,6 +14,14 @@ fs::path gameBankPath(const ProjectLayout& project) {
     return project.gameDirectory() / "language" / "strings" / "MainUS.bin";
 }
 
+fs::path gameFontPath(const ProjectLayout& project, std::string_view fontName) {
+    return project.gameDirectory() / "language" / "fonts" / fontName;
+}
+
+fs::path preservedEnglishFontPath(const ProjectLayout& project, std::string_view fontName) {
+    return project.localDirectory() / "language-banks" / "en-US" / "fonts" / fontName;
+}
+
 std::string hashOf(const fs::path& path) {
     const auto digest = sha256File(path);
     return digest ? Sha256::toHex(digest.value()) : std::string();
@@ -66,10 +74,91 @@ Result<bool> preserveEnglishBank(const ProjectLayout& project, std::string_view 
     return replaceFile(game, english, false);
 }
 
+fs::path languageFontPath(const ProjectLayout& project, std::string_view language, std::string_view fontName) {
+    const fs::path translationFont = project.root() / "translations" / fs::path(language) / "fonts" / fontName;
+    std::error_code error;
+    if (fs::is_regular_file(translationFont, error)) {
+        return translationFont;
+    }
+    return project.localDirectory() / "language-banks" / fs::path(language) / "fonts" / fontName;
+}
+
+Result<bool> preserveEnglishFonts(const ProjectLayout& project) {
+    std::error_code error;
+    bool preservedAny = false;
+    for (const char* fontName : {"Big.bin", "Small.bin"}) {
+        const fs::path english = preservedEnglishFontPath(project, fontName);
+        const fs::path game = gameFontPath(project, fontName);
+        if (fs::is_regular_file(english, error)) {
+            continue;
+        }
+        if (!fs::is_regular_file(game, error)) {
+            continue;
+        }
+        fs::path candidate = game;
+        const fs::path backupDir = game.parent_path() / "backups";
+        if (fs::is_directory(backupDir, error)) {
+            const std::string stem = fs::path(fontName).stem().string();
+            for (const auto& entry : fs::directory_iterator(backupDir, error)) {
+                if (entry.is_regular_file() && entry.path().filename().string().rfind(stem, 0) == 0) {
+                    candidate = entry.path();
+                    break;
+                }
+            }
+        }
+        fs::create_directories(english.parent_path(), error);
+        auto res = replaceFile(candidate, english, false);
+        if (!res) {
+            return res;
+        }
+        preservedAny = true;
+    }
+    return preservedAny;
+}
+
+Result<bool> installLanguageFonts(const ProjectLayout& project, std::string_view language) {
+    std::error_code error;
+    const auto preserved = preserveEnglishFonts(project);
+    if (!preserved) {
+        return preserved;
+    }
+
+    for (const char* fontName : {"Big.bin", "Small.bin"}) {
+        const fs::path target = gameFontPath(project, fontName);
+        if (!fs::is_regular_file(target, error)) {
+            continue;
+        }
+
+        const fs::path custom = languageFontPath(project, language, fontName);
+        const fs::path english = preservedEnglishFontPath(project, fontName);
+
+        fs::path source;
+        if (fs::is_regular_file(custom, error)) {
+            source = custom;
+        } else if (fs::is_regular_file(english, error)) {
+            source = english;
+        }
+
+        if (!source.empty() && fs::is_regular_file(source, error)) {
+            if (hashOf(source) != hashOf(target)) {
+                auto res = replaceFile(source, target, true);
+                if (!res) {
+                    return res;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 Result<bool> installLanguageBank(const ProjectLayout& project, std::string_view language,
                                  std::string_view retailEnglishSha256) {
     if (std::find(choices::kLanguages.begin(), choices::kLanguages.end(), language) == choices::kLanguages.end()) {
         return Error{"Unknown menu language " + std::string(language)};
+    }
+    const auto fontResult = installLanguageFonts(project, language);
+    if (!fontResult) {
+        return fontResult;
     }
     const fs::path target = gameBankPath(project);
     const fs::path source = languageBankPath(project, language);
