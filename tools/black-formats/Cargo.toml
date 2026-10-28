@@ -1,0 +1,12 @@
+[package]
+name = "black-formats"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+license = "MIT"
+description = "Read-only inspector for documented BLACK Xbox asset containers"
+
+[dependencies]
+serde_json = "1"
+sha2 = "0.10"
