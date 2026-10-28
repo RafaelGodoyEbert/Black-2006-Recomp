@@ -63,7 +63,8 @@ root/table/entry bounds, relative-pointer bases and the top-mip/palette bounds
 of textures reached by the documented paths. The reader does not recursively
 validate every model or animation payload. Font glyph counts are reported from
 the available record area; individual glyph metrics and lookup-table entries
-are not validated by this tool.
+are not validated by this tool. The later model/animation pass below extends
+the resource checks without changing the 306 recognized-file count.
 
 ## Original executable evidence
 
@@ -148,6 +149,81 @@ Two entries were decoded to WAV successfully:
 Successful decoding establishes decoder acceptance and sample counts, not an
 auditory evaluation or reproduction of in-game effects, pitch and loop behavior.
 
+## Model and animation follow-up
+
+This pass started from merged revision `2a7c4fd` on 2026-10-27 and reused the same
+disc, issue samples and private IDA database. It adds original Rust readers in
+`models.rs` and `animation.rs`; no additional external decoder or game asset is
+bundled. The earlier community reader supplied context, but its Burnout model
+support was not assumed to establish BLACK's model layout.
+
+The expanded reader successfully checks the same 306 files, with the same DSP
+image explicitly unsupported and no structural errors. It additionally reaches:
+
+- 4,286 MODEL version-0x23 occurrences from MODELS/MYDICTIONARY, including 640
+  with a nonzero model bone/name count.
+- 10,037 buffer records and 10,133 draw descriptors. Every reached descriptor
+  uses triangle-strip primitive 6. There are 4,944 stride-24, 4,587 stride-28 and
+  506 stride-36 buffer occurrences. Every referenced XYZ position is finite
+  and fits the physical input file. The largest reached index is 7,222.
+- 180 version-21 RCBs: 172 dictionary values and eight embedded bundle RCBs.
+  All have one skeleton header. The reader checks parent/index bounds, matrix
+  spans and finite values, and sorted joint-hash lookup permutations.
+- 211 version-8 banks: 163 BNKS values, 40 SHAREDBNKS values and eight embedded
+  bundle banks. Associated RCB IDs resolve locally with consistent joint counts.
+- 3,573 named state/root records, 4,013 encoding-4 clips and 459,470 track records
+  including segmented children. Clip sample counts range from 2 to 321.
+  The two-track-per-joint walks fit before each bank's relocation table.
+
+These are occurrences across files, not unique assets. Repeated RCB identifiers
+can occur within a file; the bank reader verifies that their joint counts agree.
+It does not claim that matching a joint count establishes identical skeleton
+transforms or that a bank can be paired with any model in that file.
+
+Additional original-XBE evidence:
+
+- `0x00014B50` iterates model dictionary values; `0x001640B0` relocates their
+  root arrays, texture-name pointers, bone/name pointers and LOD fields.
+- `0x001605D0` establishes the 28-byte buffer records, 48-byte draw descriptors
+  and the different buffer/descriptor pointer bases.
+- `0x00092B20` and the bank paths in `0x0017BD00` apply blob-relative fixup lists
+  and mark the list processed by clearing its first entry.
+- `0x000978E0` selects a 16-byte skeleton header. `0x000925F0` uses its count,
+  8-byte parent/flags records and 64-byte matrix records.
+- `0x0017AB40` binds model bone names through the RCB lookup. `0x0009CD30` uses
+  multiplier 65599 and character case conversion; `0x00096630` compares hashes
+  as unsigned values. Only the observed ASCII name behavior is implemented.
+- `0x00092BA0` registers bank state/root pairs, clips and the third object
+  category. It initializes a zero clip sample pointer to the inline data at +30.
+- `0x0009B410` locates the sampling header. `0x00093CC0` dispatches encoding 4
+  to the track path; `0x000964C0` reads rotation then translation per joint.
+- `0x00095850` supplies track-size/segment rules; `0x000959A0` supplies the
+  sampling cases used to identify their payload categories. The new tool walks
+  boundaries, not the full interpolation algorithm.
+- `0x000957D0` reads three float32 vector components. `0x000957F0` expands four
+  packed 24-bit float components from twelve bytes. This is not a three-float
+  quaternion reconstruction or a half-float format.
+
+The main first-mission AK1 resource was additionally reconstructed privately
+from indexed XYZ values into an orthographic wireframe and inspected. It gives
+5,447 distinct referenced vertices and 5,580 nondegenerate triangles across its
+two buffers, with coherent gun/arm geometry. This confirms a useful geometry
+reading route, not material, normal, pose or skinning equivalence. The OBJ/PNG
+remain outside the repository.
+
+For that model, the 42 RCB joint hashes match 42 of the 44 model names. Its two
+unmatched names are documented in [models.md](models.md). The model's relocated
+`+58` word array was deliberately left raw: interpreting it as a parent hierarchy
+produces self-parent entries. The verified RCB parent array is a different
+structure.
+
+All 54 issue-supplied samples are also checked with the expanded readers. The
+test suite now includes synthetic malformed fixups, bounded tables, separate
+pointer owners, triangle-strip degenerates, bone matrix bounds, missing skeleton
+IDs, segment/quantized-track lengths and packed-component decoding. No native
+animation-player oracle, new rendered animation, modified asset, writer or
+in-game replacement was tested.
+
 ## Reproduce the structural checks
 
 From the repository root:
@@ -173,10 +249,13 @@ for its exact validation scope.
 
 ## Remaining work and writer requirements
 
-- Decode MODELS payloads, materials, vertex/index formats, bones and skinning;
-  dictionary enumeration alone is not a model exporter.
-- Decode CHARACTERDIC, ACTORDICTION, BNKS, SHAREDBNKS, RCBS and animation payloads,
-  including their fixup tables and cross-resource references.
+- Complete MODEL material programs, normal/UV/color/weight layouts, skinning,
+  exact payload lengths and matrix conventions. Indexed positions and metadata
+  are now readable, but are not a complete posed model exporter.
+- Decode CHARACTERDIC/ACTORDICTION and the full state/event/parameter graphs in
+  BNKS/SHAREDBNKS, validate interpolation and timing, and establish animation
+  playback equivalence. RCB skeletons, bank fixups and track boundaries are now
+  documented; a bounds walk alone is not a verified animation player.
 - Resolve DB fields `+38..40`, negative serialized placeholders and the remaining
   StLevel/Unit/LevelDat object and gameplay data.
 - Decode GlobData's four non-dictionary sections, transition-record semantics,
