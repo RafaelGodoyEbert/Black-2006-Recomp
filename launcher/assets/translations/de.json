@@ -485,5 +485,9 @@
   "AIM MODE": "ZIELMODUS",
   "TOGGLE": "UMSCHALTEN",
   "HOLD": "HALTEN",
-  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Umschalten behält das ursprüngliche Zielverhalten bei. Halten zielt nur, solange die Zieltaste gedrückt wird."
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Umschalten behält das ursprüngliche Zielverhalten bei. Halten zielt nur, solange die Zieltaste gedrückt wird.",
+  "SKIP STARTUP MENUS": "STARTMENÜS ÜBERSPRINGEN",
+  "Presses A through the startup menus for the first minute.": "Drückt in der ersten Minute A durch die Startmenüs.",
+  "SUBTITLES": "UNTERTITEL",
+  "Show subtitles for dialogue and cutscenes. Applies the next time you start the game.": "Untertitel für Dialoge und Zwischensequenzen anzeigen. Gilt beim nächsten Spielstart."
 }

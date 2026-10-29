@@ -485,5 +485,9 @@
   "AIM MODE": "MODO DE APUNTADO",
   "TOGGLE": "ALTERNAR",
   "HOLD": "MANTENER",
-  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternar conserva el apuntado original. Mantener apunta solo mientras se mantiene pulsado el botón de apuntar."
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternar conserva el apuntado original. Mantener apunta solo mientras se mantiene pulsado el botón de apuntar.",
+  "SKIP STARTUP MENUS": "SALTAR MENÚS INICIALES",
+  "Presses A through the startup menus for the first minute.": "Pulsa A en los menús iniciales durante el primer minuto.",
+  "SUBTITLES": "SUBTÍTULOS",
+  "Show subtitles for dialogue and cutscenes. Applies the next time you start the game.": "Mostrar subtítulos en los diálogos y las cinemáticas. Se aplica la próxima vez que inicies el juego."
 }

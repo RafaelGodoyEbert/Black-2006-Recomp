@@ -485,5 +485,9 @@
   "AIM MODE": "MODE DE VISÉE",
   "TOGGLE": "BASCULE",
   "HOLD": "MAINTENIR",
-  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Bascule conserve la visée d’origine. Maintenir permet de viser uniquement tant que le bouton de visée est maintenu."
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Bascule conserve la visée d’origine. Maintenir permet de viser uniquement tant que le bouton de visée est maintenu.",
+  "SKIP STARTUP MENUS": "PASSER LES MENUS DE DÉMARRAGE",
+  "Presses A through the startup menus for the first minute.": "Appuie sur A dans les menus de démarrage pendant la première minute.",
+  "SUBTITLES": "SOUS-TITRES",
+  "Show subtitles for dialogue and cutscenes. Applies the next time you start the game.": "Afficher les sous-titres des dialogues et des cinématiques. Prend effet au prochain démarrage du jeu."
 }

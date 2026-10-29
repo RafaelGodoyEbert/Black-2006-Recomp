@@ -485,5 +485,9 @@
   "AIM MODE": "MODALITÀ MIRA",
   "TOGGLE": "ALTERNATA",
   "HOLD": "TIENI PREMUTO",
-  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternata mantiene il comportamento originale della mira. Tieni premuto mira solo mentre il pulsante di mira resta premuto."
+  "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternata mantiene il comportamento originale della mira. Tieni premuto mira solo mentre il pulsante di mira resta premuto.",
+  "SKIP STARTUP MENUS": "SALTA I MENU INIZIALI",
+  "Presses A through the startup menus for the first minute.": "Preme A nei menu iniziali per il primo minuto.",
+  "SUBTITLES": "SOTTOTITOLI",
+  "Show subtitles for dialogue and cutscenes. Applies the next time you start the game.": "Mostra i sottotitoli nei dialoghi e nei filmati. Si applica al prossimo avvio del gioco."
 }
