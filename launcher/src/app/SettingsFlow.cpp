@@ -313,10 +313,10 @@ std::vector<SettingsFlow::Option> SettingsFlow::graphicsOptions() {
                     [&s, distances](int step) { cycle(distances, s.lod_distance, step); },
                     {}});
     rows.push_back({tr("PRECOMPILE SHADERS AT STARTUP"),
-                    tr("Applies next time you start the game. On prepares recorded shaders before playing. Off skips that preparation; shaders needed during play are still compiled."),
+                    tr("Applies next time you start the game. On prepares recorded shaders before playing. Off skips "
+                       "that preparation; shaders needed during play are still compiled."),
                     [&s] { return std::string(s.precompileShaders ? tr("ON") : tr("OFF")); },
-                    [&s](int) { s.precompileShaders = !s.precompileShaders; },
-                    gpu});
+                    [&s](int) { s.precompileShaders = !s.precompileShaders; }, gpu});
     return rows;
 }
 
@@ -383,8 +383,10 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameplayOptions() {
         {tr("SUBTITLES"),
          tr("Show subtitles for dialogue and cutscenes. Applies the next time you start the game."),
          [&s] { return std::string(s.subtitles ? tr("ON") : tr("OFF")); },
-         [&s](int) { s.subtitles = !s.subtitles; }, {}},
-        pick(tr("SPRINT"), tr("Hold the Sprint key while moving to run faster. Default: Left Shift. Off keeps original movement."),
+         [&s](int) { s.subtitles = !s.subtitles; },
+         {}},
+        pick(tr("SPRINT"),
+             tr("Hold the Sprint key while moving to run faster. Default: Left Shift. Off keeps original movement."),
              s.sprint, {{"off", tr("OFF")}, {"on", tr("ON")}}),
         pick(tr("JUMP"), tr("Press the Jump key on the ground to jump. Default: Space. Release before jumping again."),
              s.jump, {{"off", tr("OFF")}, {"on", tr("ON")}}),
@@ -511,19 +513,19 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameOptions() {
                     {},
                     false});
     rows.push_back(toggle(tr("INFINITE AMMO"), tr("Weapons never run out."), s.infiniteAmmo));
-    rows.push_back({tr("SILVER WEAPONS"),
-                    tr("The silver weapons the game unlocks on Hard. Game keeps its own rules."),
-                    [&s] {
-                        return std::string(s.silverWeaponMode == "force-on"    ? tr("ALWAYS")
-                                           : s.silverWeaponMode == "force-off" ? tr("NEVER")
-                                                                               : tr("AS THE GAME DECIDES"));
-                    },
-                    [&s](int step) {
-                        const std::vector<Choice<std::string>> modes = {
-                            {"native", {}}, {"force-on", {}}, {"force-off", {}}};
-                        cycle(modes, s.silverWeaponMode, step);
-                    },
-                    {}});
+    rows.push_back(
+        {tr("SILVER WEAPONS"),
+         tr("The silver weapons the game unlocks on Hard. Game keeps its own rules."),
+         [&s] {
+             return std::string(s.silverWeaponMode == "force-on"    ? tr("ALWAYS")
+                                : s.silverWeaponMode == "force-off" ? tr("NEVER")
+                                                                    : tr("AS THE GAME DECIDES"));
+         },
+         [&s](int step) {
+             const std::vector<Choice<std::string>> modes = {{"native", {}}, {"force-on", {}}, {"force-off", {}}};
+             cycle(modes, s.silverWeaponMode, step);
+         },
+         {}});
     return rows;
 }
 

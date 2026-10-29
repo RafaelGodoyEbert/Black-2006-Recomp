@@ -62,8 +62,8 @@ struct Settings {
     std::string optional_secondaries = "off";  // mission completion still requires primary objectives
     std::string sprint = "off";
     std::string jump = "off";
-    std::string aimMode = "toggle";            // toggle preserves the original aim behavior
-    int lod_distance = 100;                    // percentages: 100 keeps the original distances/damage/health
+    std::string aimMode = "toggle";  // toggle preserves the original aim behavior
+    int lod_distance = 100;          // percentages: 100 keeps the original distances/damage/health
     int bullet_damage = 100;
     int enemy_health = 100;
     std::string headshot_instakill = "off";

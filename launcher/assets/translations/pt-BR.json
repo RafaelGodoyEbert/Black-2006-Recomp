@@ -486,8 +486,6 @@
   "TOGGLE": "ALTERNAR",
   "HOLD": "SEGURAR",
   "Toggle keeps the original aim behavior. Hold aims only while the aim button is held.": "Alternar mantém a mira original. Segurar mira apenas enquanto o botão de mira estiver pressionado.",
-  "SKIP STARTUP MENUS": "PULAR MENUS INICIAIS",
-  "Presses A through the startup menus for the first minute.": "Aperta A nos menus iniciais durante o primeiro minuto.",
   "PRECOMPILE SHADERS AT STARTUP": "PRÉ-COMPILAR SHADERS AO INICIAR",
   "Applies next time you start the game. On prepares recorded shaders before playing. Off skips that preparation; shaders needed during play are still compiled.": "Aplica na próxima abertura. Ligado prepara os shaders registrados antes de jogar. Desligado pula essa preparação; shaders necessários durante a partida continuam sendo compilados.",
   "SUBTITLES": "LEGENDAS",
