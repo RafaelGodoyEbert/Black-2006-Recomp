@@ -173,6 +173,12 @@ static const recomp_func_t g_itrace_wrappers[ITRACE_SLOTS] = {
  * tools.recomp --exclude-manual on this file (scripts/regen-and-build.ps1
  * passes it). The first-frame open and normal decoder teardown remain native.
  */
+/* Keep wrapper declarations visible to the recompiler's manual-source scan. */
+extern void sub_0014EB10_gen(void);
+extern void sub_0014EBF0_gen(void);
+extern void sub_00146EA0_gen(void);
+#include "black_speech_subtitles.inc"
+
 extern void sub_000C4570_gen(void);
 
 static int movie_skip_all = -1;
@@ -182,12 +188,6 @@ static void black_movie_skip_font(void);
 
 #define GUEST32(va) (*(uint32_t *)((uintptr_t)g_xbox_mem_offset + (va)))
 #define GUEST8(va) (*(uint8_t *)((uintptr_t)g_xbox_mem_offset + (va)))
-
-/* Keep wrapper declarations visible to the recompiler's manual-source scan. */
-extern void sub_0014EB10_gen(void);
-extern void sub_0014EBF0_gen(void);
-extern void sub_00146EA0_gen(void);
-#include "black_speech_subtitles.inc"
 
 /* DirectSound's idle-voice completion edits the same intrusive lists as guest
  * threads at DISPATCH_LEVEL. On Xbox its busy-counter test runs on the same

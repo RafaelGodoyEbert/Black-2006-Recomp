@@ -26,7 +26,7 @@ TEST_CASE("Tuning multipliers validate and preserve original defaults through JS
     CHECK(defaults.bullet_damage == 100);
     CHECK(defaults.enemy_health == 100);
     CHECK(defaults.headshot_instakill == "off");
-    const auto verify = [](const auto& values, int Settings::*field) {
+    const auto verify = [](const auto& values, int Settings::* field) {
         for (const int choice : values) {
             Settings wanted;
             wanted.*field = choice;
