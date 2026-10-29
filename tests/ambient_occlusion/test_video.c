@@ -1323,7 +1323,7 @@ static void test_native_row_services(void)
     pc_video_test_reset(ini_path); pc_video_get(&before);
     generation = pc_video_generation();
     for (row = 0; row < PCV_ROW_RESET; row++) {
-        if (row == PCV_ROW_AIM_MODE) continue; /* aim mode has no environment pin */
+        if (row == PCV_ROW_AIM_MODE || row == PCV_ROW_SPRINT || row == PCV_ROW_JUMP) continue; /* aim mode and movement have no environment pin */
         CHECK(pc_video_menu_row_locked(row));
         CHECK(strstr(pc_video_menu_row_help(row), "fixed by an environment variable"));
         CHECK(!pc_video_menu_row_change(row, 1));
