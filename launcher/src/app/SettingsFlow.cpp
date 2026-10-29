@@ -513,19 +513,19 @@ std::vector<SettingsFlow::Option> SettingsFlow::gameOptions() {
                     {},
                     false});
     rows.push_back(toggle(tr("INFINITE AMMO"), tr("Weapons never run out."), s.infiniteAmmo));
-    rows.push_back({tr("SILVER WEAPONS"),
-                    tr("The silver weapons the game unlocks on Hard. Game keeps its own rules."),
-                    [&s] {
-                        return std::string(s.silverWeaponMode == "force-on"    ? tr("ALWAYS")
-                                           : s.silverWeaponMode == "force-off" ? tr("NEVER")
-                                                                               : tr("AS THE GAME DECIDES"));
-                    },
-                    [&s](int step) {
-                        const std::vector<Choice<std::string>> modes = {
-                            {"native", {}}, {"force-on", {}}, {"force-off", {}}};
-                        cycle(modes, s.silverWeaponMode, step);
-                    },
-                    {}});
+    rows.push_back(
+        {tr("SILVER WEAPONS"),
+         tr("The silver weapons the game unlocks on Hard. Game keeps its own rules."),
+         [&s] {
+             return std::string(s.silverWeaponMode == "force-on"    ? tr("ALWAYS")
+                                : s.silverWeaponMode == "force-off" ? tr("NEVER")
+                                                                    : tr("AS THE GAME DECIDES"));
+         },
+         [&s](int step) {
+             const std::vector<Choice<std::string>> modes = {{"native", {}}, {"force-on", {}}, {"force-off", {}}};
+             cycle(modes, s.silverWeaponMode, step);
+         },
+         {}});
     return rows;
 }
 

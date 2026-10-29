@@ -402,7 +402,8 @@ Result<fs::path> restore(const fs::path& profile, const fs::path& backup, const 
 void logAction(const ProjectLayout& project, std::string_view outcome, std::size_t slot, const fs::path& profile,
                std::string_view before, std::string_view after, std::string_view detail) {
     const auto clean = [](std::string text) {
-        std::replace_if(text.begin(), text.end(), [](char c) { return c == '\t' || c == '\r' || c == '\n'; }, ' ');
+        std::replace_if(
+            text.begin(), text.end(), [](char c) { return c == '\t' || c == '\r' || c == '\n'; }, ' ');
         return text;
     };
     std::error_code error;
